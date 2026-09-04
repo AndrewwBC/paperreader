@@ -1,0 +1,123 @@
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+:root {
+  /* Backgrounds */
+  --bg: #ffffff;
+  --surface: #f4f4f5;
+  --card: #ececee;
+  --elevated: #e4e4e7;
+  --border: #d4d4d8;
+  --border-light: #a1a1aa;
+
+  /* Accent — azul vivo */
+  --accent: #2563eb;
+  --accent-dim: rgba(37, 99, 235, 0.10);
+  --accent-hover: #1d4ed8;
+
+  /* Teal */
+  --teal: #0891b2;
+  --teal-dim: rgba(8, 145, 178, 0.12);
+
+  /* Green — "citado" e datasets */
+  --green: #16a34a;
+  --green-dim: rgba(22, 163, 74, 0.12);
+
+  /* Outros */
+  --amber: #d97706;
+  --red: #dc2626;
+
+  /* Texto */
+  --text: #09090b;
+  --text-muted: #52525b;
+  --text-subtle: #a1a1aa;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
+  --shadow: 0 4px 20px rgba(0,0,0,0.08);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.12);
+  --font: 'Inter', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, monospace;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --sidebar-width: 280px;
+}
+
+[data-theme="dark"] {
+  /* Backgrounds — marrom escuro */
+  --bg: #1c1610;
+  --surface: #241d14;
+  --card: #2e2519;
+  --elevated: #382d1f;
+  --border: #4a3d2a;
+  --border-light: #6b5a3e;
+
+  /* Accent — âmbar/dourado */
+  --accent: #d4a73a;
+  --accent-dim: rgba(212, 167, 58, 0.15);
+  --accent-hover: #e8bc4a;
+
+  /* Teal */
+  --teal: #4a9a8a;
+  --teal-dim: rgba(74, 154, 138, 0.15);
+
+  /* Green */
+  --green: #6aaa4a;
+  --green-dim: rgba(106, 170, 74, 0.15);
+
+  /* Outros */
+  --amber: #d4a73a;
+  --red: #d46060;
+
+  /* Texto */
+  --text: #f0e8d8;
+  --text-muted: #a89070;
+  --text-subtle: #6b5a3e;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
+  --shadow: 0 4px 20px rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 40px rgba(0,0,0,0.5);
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  height: 100vh;
+  display: flex;
+  overflow: hidden;
+}
+
+button {
+  cursor: pointer;
+  font-family: var(--font);
+}
+
+input, textarea, select {
+  font-family: var(--font);
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-light);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--text-subtle);
+}

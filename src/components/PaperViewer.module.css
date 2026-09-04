@@ -1,0 +1,354 @@
+.viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.toolbarName {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono);
+}
+
+.zoomControls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 2px;
+}
+
+.zoomBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 3px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+}
+
+.zoomBtn:hover:not(:disabled) {
+  background: var(--elevated);
+  color: var(--text);
+}
+
+.zoomBtn:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+.zoomLevel {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 36px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.downloadBtn {
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  text-decoration: none;
+  padding: 4px;
+  border-radius: 4px;
+  transition: color 0.15s, background 0.15s;
+}
+
+.downloadBtn:hover {
+  color: var(--text);
+  background: var(--card);
+}
+
+.scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: auto;
+  background: #525659;
+  position: relative;
+}
+
+.pagesContainer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px;
+  gap: 12px;
+}
+
+.page {
+  position: relative;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  background: #fff;
+  flex-shrink: 0;
+}
+
+.page canvas {
+  display: block;
+}
+
+/* PDF.js text layer */
+.textLayer {
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor, 1) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+  position: absolute;
+  inset: 0;
+  overflow: clip;
+  line-height: 1;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+  transform-origin: 0 0;
+  caret-color: CanvasText;
+  z-index: 5;
+}
+
+.textLayer :is(span, br) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+}
+
+.textLayer > span,
+.textLayer :global(.markedContent) span:not(:global(.markedContent)) {
+  z-index: 1;
+  --font-height: 0;
+  --scale-x: 1;
+  --rotate: 0deg;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.textLayer :global(.markedContent) {
+  display: contents;
+}
+
+.textLayer span[role="img"] {
+  user-select: none;
+  cursor: default;
+}
+
+.textLayer :global(.endOfContent) {
+  display: block;
+  position: absolute;
+  inset: 100% 0 0;
+  z-index: 0;
+  cursor: default;
+  user-select: none;
+}
+
+.textLayer:global(.selecting) :global(.endOfContent) {
+  top: 0;
+}
+
+.textLayer br::selection {
+  background: transparent;
+}
+
+.textLayer .highlight {
+  margin: -1px;
+  padding: 1px;
+  background-color: rgba(180, 0, 170, 1);
+  border-radius: 4px;
+}
+
+.textLayer .highlight.appended {
+  position: initial;
+}
+
+.textLayer .highlight.begin {
+  border-radius: 4px 0 0 4px;
+}
+
+.textLayer .highlight.end {
+  border-radius: 0 4px 4px 0;
+}
+
+.textLayer .highlight.middle {
+  border-radius: 0;
+}
+
+.textLayer .highlight.selected {
+  background-color: rgba(0, 100, 0, 1);
+}
+
+.textLayer ::selection {
+  background: rgba(0, 0, 255, 0.25);
+  color: transparent;
+}
+
+
+.loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.highlightLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.highlightInkLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: block;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+}
+
+.highlightMark {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: rgba(255, 214, 0, 0.38);
+  cursor: pointer;
+  pointer-events: none;
+  mix-blend-mode: multiply;
+  transition: background 0.15s;
+}
+
+.highlightMark:hover {
+  background: rgba(220, 38, 38, 0.28);
+}
+
+.highlightMark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.highlightMarkActive {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.highlightCount {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border: 1px solid #d4a900;
+  border-radius: 5px;
+  background: rgba(255, 214, 0, 0.16);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+}
+
+.selectionMenu {
+  position: fixed;
+  z-index: 200;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.selectionMenu button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 9px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 214, 0, 0.18);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.selectionMenu button:hover {
+  background: rgba(255, 214, 0, 0.32);
+}
+
+.colorChoices {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 3px 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.colorChoice {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.colorChoice[data-color="yellow"] {
+  background: #facc15;
+}
+
+.colorChoice[data-color="green"] {
+  background: #4ade80;
+}
+
+.colorChoice[data-color="blue"] {
+  background: #60a5fa;
+}
+
+.colorChoice[data-color="pink"] {
+  background: #f472b6;
+}
+
+.colorChoiceActive {
+  border-color: var(--text);
+  box-shadow: 0 0 0 1px var(--surface);
+}
+
+.highlightMark[data-color="yellow"] {
+  background: rgba(250, 204, 21, 0.38);
+}
+
+.highlightMark[data-color="green"] {
+  background: rgba(74, 222, 128, 0.36);
+}
+
+.highlightMark[data-color="blue"] {
+  background: rgba(96, 165, 250, 0.36);
+}
+
+.highlightMark[data-color="pink"] {
+  background: rgba(244, 114, 182, 0.36);
+}
+

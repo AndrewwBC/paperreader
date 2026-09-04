@@ -1,0 +1,228 @@
+import express from 'express'
+import multer from 'multer'
+import db from './db.js'
+
+const app = express()
+const upload = multer({ storage: multer.memoryStorage() })
+
+app.use(express.json())
+
+// List studies
+app.get('/api/studies', (_req, res) => {
+  const studies = db.prepare(`
+    SELECT
+      s.id,
+      s.name,
+      s.created_at,
+      COUNT(p.id) AS paper_count
+    FROM studies s
+    LEFT JOIN papers p ON p.study_id = s.id
+    GROUP BY s.id
+    ORDER BY s.created_at ASC
+  `).all()
+
+  res.json(studies.map(s => ({
+    id: s.id,
+    name: s.name,
+    createdAt: s.created_at,
+    paperCount: s.paper_count,
+  })))
+})
+
+
+// Get a study
+app.get('/api/studies/:id', (req, res) => {
+  const study = db.prepare(`
+    SELECT
+      s.id,
+      s.name,
+      s.created_at,
+      COUNT(p.id) AS paper_count
+    FROM studies s
+    LEFT JOIN papers p ON p.study_id = s.id
+    WHERE s.id = ?
+    GROUP BY s.id
+  `).get(req.params.id)
+
+  if (!study) return res.status(404).json({ error: 'Study not found' })
+  res.json({
+    id: study.id,
+    name: study.name,
+    createdAt: study.created_at,
+    paperCount: study.paper_count,
+  })
+})
+
+// Create a study
+app.post('/api/studies', (req, res) => {
+  const name = String(req.body?.name || '').trim()
+  if (!name) return res.status(400).json({ error: 'Study name is required' })
+  if (name.length > 80) return res.status(400).json({ error: 'Study name is too long' })
+
+  const id = Date.now().toString()
+  const createdAt = new Date().toISOString()
+
+  db.prepare('INSERT INTO studies (id, name, created_at) VALUES (?, ?, ?)')
+    .run(id, name, createdAt)
+
+  res.json({ id, name, createdAt, paperCount: 0 })
+})
+
+
+// Update a study
+app.put('/api/studies/:id', (req, res) => {
+  const study = db.prepare('SELECT id, created_at FROM studies WHERE id = ?').get(req.params.id)
+  if (!study) return res.status(404).json({ error: 'Study not found' })
+
+  const name = String(req.body?.name || '').trim()
+  if (!name) return res.status(400).json({ error: 'Study name is required' })
+  if (name.length > 80) return res.status(400).json({ error: 'Study name is too long' })
+
+  db.prepare('UPDATE studies SET name = ? WHERE id = ?').run(name, req.params.id)
+  const paperCount = db.prepare('SELECT COUNT(*) AS count FROM papers WHERE study_id = ?')
+    .get(req.params.id).count
+
+  res.json({
+    id: req.params.id,
+    name,
+    createdAt: study.created_at,
+    paperCount,
+  })
+})
+
+// Delete a study and all of its papers
+app.delete('/api/studies/:id', (req, res) => {
+  const study = db.prepare('SELECT id FROM studies WHERE id = ?').get(req.params.id)
+  if (!study) return res.status(404).json({ error: 'Study not found' })
+
+  const paperCount = db.prepare('SELECT COUNT(*) AS count FROM papers WHERE study_id = ?')
+    .get(req.params.id).count
+
+  db.exec('BEGIN')
+  try {
+    db.prepare('DELETE FROM papers WHERE study_id = ?').run(req.params.id)
+    db.prepare('DELETE FROM studies WHERE id = ?').run(req.params.id)
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+
+  res.json({ ok: true, deletedPaperCount: paperCount })
+})
+
+// List all papers (without PDF data)
+app.get('/api/papers', (_req, res) => {
+  const rows = db.prepare(
+    'SELECT id, study_id, file_name, added_at, meta FROM papers ORDER BY added_at DESC'
+  ).all()
+  res.json(rows.map(r => ({
+    id: r.id,
+    studyId: r.study_id,
+    fileName: r.file_name,
+    addedAt: r.added_at,
+    meta: JSON.parse(r.meta),
+    blobUrl: null,
+  })))
+})
+
+
+// Get a paper without PDF data
+app.get('/api/papers/:id', (req, res) => {
+  const row = db.prepare(
+    'SELECT id, study_id, file_name, added_at, meta FROM papers WHERE id = ?'
+  ).get(req.params.id)
+
+  if (!row) return res.status(404).json({ error: 'Paper not found' })
+  res.json({
+    id: row.id,
+    studyId: row.study_id,
+    fileName: row.file_name,
+    addedAt: row.added_at,
+    meta: JSON.parse(row.meta),
+    blobUrl: null,
+  })
+})
+
+// Add a new paper
+app.post('/api/papers', upload.single('pdf'), (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
+  const id = Date.now().toString()
+  const meta = req.body.meta ? JSON.parse(req.body.meta) : {}
+  const studyId = String(req.body.studyId || '')
+  const addedAt = new Date().toISOString()
+
+  if (!studyId) return res.status(400).json({ error: 'Study is required' })
+  const study = db.prepare('SELECT id FROM studies WHERE id = ?').get(studyId)
+  if (!study) return res.status(400).json({ error: 'Study not found' })
+
+  db.prepare(
+    'INSERT INTO papers (id, study_id, file_name, added_at, pdf_data, meta) VALUES (?, ?, ?, ?, ?, ?)'
+  ).run(id, studyId, req.file.originalname, addedAt, req.file.buffer, JSON.stringify(meta))
+
+  res.json({ id, studyId, fileName: req.file.originalname, addedAt, meta, blobUrl: null })
+})
+
+// Stream PDF bytes
+app.get('/api/papers/:id/pdf', (req, res) => {
+  const row = db.prepare('SELECT pdf_data, file_name FROM papers WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  res.set('Content-Type', 'application/pdf')
+  res.set('Content-Disposition', `inline; filename="${row.file_name}"`)
+  // node:sqlite returns BLOBs as Uint8Array
+  res.send(Buffer.from(row.pdf_data))
+})
+
+
+// Update a paper
+app.put('/api/papers/:id', (req, res) => {
+  const row = db.prepare(
+    'SELECT id, study_id, file_name, added_at, meta FROM papers WHERE id = ?'
+  ).get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Paper not found' })
+
+  const studyId = req.body?.studyId === undefined
+    ? row.study_id
+    : String(req.body.studyId || '')
+  const fileName = req.body?.fileName === undefined
+    ? row.file_name
+    : String(req.body.fileName || '').trim()
+  const meta = req.body?.meta && typeof req.body.meta === 'object'
+    ? { ...JSON.parse(row.meta), ...req.body.meta }
+    : JSON.parse(row.meta)
+
+  if (!fileName) return res.status(400).json({ error: 'File name is required' })
+  const study = db.prepare('SELECT id FROM studies WHERE id = ?').get(studyId)
+  if (!study) return res.status(400).json({ error: 'Study not found' })
+
+  db.prepare('UPDATE papers SET study_id = ?, file_name = ?, meta = ? WHERE id = ?')
+    .run(studyId, fileName, JSON.stringify(meta), req.params.id)
+
+  res.json({
+    id: row.id,
+    studyId,
+    fileName,
+    addedAt: row.added_at,
+    meta,
+    blobUrl: null,
+  })
+})
+
+// Update metadata
+app.put('/api/papers/:id/meta', (req, res) => {
+  const row = db.prepare('SELECT meta FROM papers WHERE id = ?').get(req.params.id)
+  if (!row) return res.status(404).json({ error: 'Not found' })
+  const updated = { ...JSON.parse(row.meta), ...req.body }
+  db.prepare('UPDATE papers SET meta = ? WHERE id = ?').run(JSON.stringify(updated), req.params.id)
+  res.json({ ok: true })
+})
+
+// Delete a paper
+app.delete('/api/papers/:id', (req, res) => {
+  const result = db.prepare('DELETE FROM papers WHERE id = ?').run(req.params.id)
+  if (result.changes === 0) return res.status(404).json({ error: 'Paper not found' })
+  res.json({ ok: true })
+})
+
+const PORT = process.env.PORT || 3001
+app.listen(PORT, () => console.log(`API server on http://localhost:${PORT}`))
