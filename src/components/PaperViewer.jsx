@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { getDocument, GlobalWorkerOptions, TextLayer, StandardFontDataFactory } from "pdfjs-dist"
+import { getDocument, GlobalWorkerOptions, TextLayer } from "pdfjs-dist"
 import styles from "./PaperViewer.module.css"
 
 GlobalWorkerOptions.workerSrc = new URL(
@@ -7,9 +7,12 @@ GlobalWorkerOptions.workerSrc = new URL(
   import.meta.url
 ).href
 
-GlobalWorkerOptions.standardFontDataFactory = new StandardFontDataFactory({
-  baseUrl: new URL("pdfjs-dist/standard_fonts/", import.meta.url).href,
-})
+GlobalWorkerOptions.standardFontDataUrl = new URL(
+  "pdfjs-dist/standard_fonts/",
+  import.meta.url
+).href
+GlobalWorkerOptions.cMapUrl = new URL("pdfjs-dist/cmaps/", import.meta.url).href
+GlobalWorkerOptions.cMapPacked = true
 
 const MIN_SCALE = 0.5
 const MAX_SCALE = 3.0
@@ -206,7 +209,6 @@ export function PaperViewer({
       url: blobUrl,
       cMapUrl: new URL("pdfjs-dist/cmaps/", import.meta.url).href,
       cMapPacked: true,
-      standardFontDataUrl: new URL("pdfjs-dist/standard_fonts/", import.meta.url).href,
     }).promise.then(pdf => {
       if (cancelled) return
       pdfRef.current = pdf
