@@ -377,7 +377,7 @@ app.post('/api/papers', upload.single('pdf'), (req, res) => {
   res.json({ id, studyId, fileName: req.file.originalname, addedAt, meta, blobUrl: null })
 })
 
-// Stream PDF bytes
+// Stream PDF bytes with range request support
 app.get('/api/papers/:id/pdf', (req, res) => {
   const row = db.prepare(`
     SELECT p.pdf_data, p.file_name
@@ -386,10 +386,29 @@ app.get('/api/papers/:id/pdf', (req, res) => {
     WHERE p.id = ? AND s.owner_id = ?
   `).get(req.params.id, req.user.id)
   if (!row) return res.status(404).json({ error: 'Not found' })
+
+  const pdfData = Buffer.from(row.pdf_data)
+  const fileSize = pdfData.length
+  const range = req.headers.range
+
   res.set('Content-Type', 'application/pdf')
   res.set('Content-Disposition', `inline; filename="${row.file_name}"`)
-  // node:sqlite returns BLOBs as Uint8Array
-  res.send(Buffer.from(row.pdf_data))
+  res.set('Accept-Ranges', 'bytes')
+
+  if (range) {
+    const parts = range.replace(/bytes=/, '').split('-')
+    const start = parseInt(parts[0], 10)
+    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1
+    const chunkSize = end - start + 1
+
+    res.status(206)
+    res.set('Content-Range', `bytes ${start}-${end}/${fileSize}`)
+    res.set('Content-Length', chunkSize)
+    res.send(pdfData.slice(start, end + 1))
+  } else {
+    res.set('Content-Length', fileSize)
+    res.send(pdfData)
+  }
 })
 
 
