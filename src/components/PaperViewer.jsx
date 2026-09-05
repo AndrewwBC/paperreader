@@ -8,10 +8,10 @@ GlobalWorkerOptions.workerSrc = new URL(
 ).href
 
 GlobalWorkerOptions.standardFontDataUrl = new URL(
-  "pdfjs-dist/standard_fonts/",
+  "/standard_fonts/",
   import.meta.url
 ).href
-GlobalWorkerOptions.cMapUrl = new URL("pdfjs-dist/cmaps/", import.meta.url).href
+GlobalWorkerOptions.cMapUrl = new URL("/cmaps/", import.meta.url).href
 GlobalWorkerOptions.cMapPacked = true
 
 const MIN_SCALE = 0.5
