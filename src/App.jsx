@@ -663,7 +663,12 @@ export default function App({ user, onOpenAccount }) {
                         {uploadResult.failed.length} arquivo{uploadResult.failed.length !== 1 ? 's' : ''} não pôde{uploadResult.failed.length === 1 ? '' : 'ram'} ser processado{uploadResult.failed.length !== 1 ? 's' : ''}.
                       </p>
                       <ul className={styles.failedFiles}>
-                        {uploadResult.failed.map(item => <li key={item.fileName}>{item.fileName}</li>)}
+                        {uploadResult.failed.map(item => (
+                          <li key={item.fileName}>
+                            {item.fileName}
+                            {item.message && <span className={styles.failedReason}> — {item.message}</span>}
+                          </li>
+                        ))}
                       </ul>
                     </>
                   )}

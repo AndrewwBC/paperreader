@@ -107,7 +107,13 @@ export function usePapers() {
     formData.append('studyId', studyId)
 
     const res = await fetch('/api/papers', { method: 'POST', body: formData, credentials: 'include' })
-    if (!res.ok) throw new Error('Failed to add paper')
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 413) {
+        throw new Error(`"${file.name}" é muito grande para o servidor.`)
+      }
+      throw new Error(data.error || 'Falha ao adicionar o paper.')
+    }
     return res.json()
   }
 

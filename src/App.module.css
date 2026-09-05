@@ -947,6 +947,10 @@
   font-size: 11px;
 }
 
+.failedReason {
+  color: var(--red);
+}
+
 .batchResult .formActions {
   margin-top: 20px;
 }
