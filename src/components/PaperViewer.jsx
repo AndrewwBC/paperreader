@@ -21,7 +21,8 @@ const HIGHLIGHT_COLORS = ["yellow", "green", "blue", "pink"]
 const HIGHLIGHT_LABELS = { yellow: "Amarelo", green: "Verde", blue: "Azul", pink: "Rosa" }
 
 export function PaperViewer({
-  blobUrl,
+  srcUrl,
+  downloadUrl,
   fileName,
   highlights = [],
   onHighlightsChange,
@@ -33,7 +34,14 @@ export function PaperViewer({
   const scaleRef = useRef(1.5)
   const highlightsRef = useRef(highlights)
   const onHighlightsChangeRef = useRef(onHighlightsChange)
+  const pageMetaRef = useRef(new Map()) // pageNumber -> { page, baseViewport }
+  const observerRef = useRef(null)
+  const renderQueueRef = useRef([])
+  const renderingRef = useRef(false)
+  const disposedRef = useRef(false)
   const [scale, setScale] = useState(1.5)
+  const [ready, setReady] = useState(false)
+  const [loadError, setLoadError] = useState(null)
   const [selectionCandidate, setSelectionCandidate] = useState(null)
   const [highlightColor, setHighlightColor] = useState("yellow")
 
@@ -149,81 +157,186 @@ export function PaperViewer({
     }
   }, [removeHighlight])
 
-  const renderPages = useCallback(async (pdf, targetScale) => {
+  const clearPage = useCallback(div => {
+    div.querySelectorAll("canvas").forEach(canvas => canvas.remove())
+    div.querySelectorAll(`.${styles.textLayer}`).forEach(layer => layer.remove())
+    div.dataset.renderedScale = ""
+  }, [])
+
+  const enqueueRender = useCallback(pageNumber => {
+    const div = containerRef.current?.querySelector(`[data-page-number="${pageNumber}"]`)
+    if (!div || !pageMetaRef.current.has(pageNumber)) return
+    if (div.dataset.renderedScale === String(scaleRef.current)) return
+    if (div.dataset.visible !== "1") return
+    if (!renderQueueRef.current.includes(pageNumber)) renderQueueRef.current.push(pageNumber)
+  }, [])
+
+  const renderPage = useCallback(async (pageNumber, targetScale) => {
+    const meta = pageMetaRef.current.get(pageNumber)
+    const div = containerRef.current?.querySelector(`[data-page-number="${pageNumber}"]`)
+    if (!meta || !div) return
+
+    const dpr = window.devicePixelRatio || 1
+    const viewport = meta.page.getViewport({ scale: targetScale })
+    const scaledVP = meta.page.getViewport({ scale: targetScale * dpr })
+
+    clearPage(div)
+    const canvas = document.createElement("canvas")
+    canvas.width = scaledVP.width
+    canvas.height = scaledVP.height
+    canvas.style.width = `${viewport.width}px`
+    canvas.style.height = `${viewport.height}px`
+
+    const textDiv = document.createElement("div")
+    textDiv.className = styles.textLayer
+
+    div.appendChild(canvas)
+    div.appendChild(textDiv)
+
+    await meta.page.render({ canvasContext: canvas.getContext("2d"), viewport: scaledVP }).promise
+
+    const textLayer = new TextLayer({
+      textContentSource: await meta.page.getTextContent(),
+      container: textDiv,
+      viewport,
+    })
+    await textLayer.render()
+
+    div.dataset.renderedScale = String(targetScale)
+  }, [clearPage])
+
+
+  const pumpQueue = useCallback(async () => {
+    if (renderingRef.current) return
+    renderingRef.current = true
+    try {
+      while (renderQueueRef.current.length > 0) {
+        if (disposedRef.current) return
+        const pageNumber = renderQueueRef.current.shift()
+        const div = containerRef.current?.querySelector(`[data-page-number="${pageNumber}"]`)
+        if (!div || div.dataset.visible !== "1") continue
+        if (div.dataset.renderedScale === String(scaleRef.current)) continue
+        await renderPage(pageNumber, scaleRef.current)
+        renderHighlightOverlays()
+      }
+    } finally {
+      renderingRef.current = false
+    }
+  }, [renderPage, renderHighlightOverlays])
+
+  const setupObserver = useCallback(() => {
+    observerRef.current?.disconnect()
+    const container = containerRef.current
+    const scroll = scrollRef.current
+    if (!container || !scroll) return
+
+    const io = new IntersectionObserver(entries => {
+      let scheduled = false
+      for (const entry of entries) {
+        const pageNumber = Number(entry.target.dataset.pageNumber)
+        if (entry.isIntersecting) {
+          entry.target.dataset.visible = "1"
+          enqueueRender(pageNumber)
+          scheduled = true
+        } else {
+          entry.target.dataset.visible = ""
+          clearPage(entry.target)
+        }
+      }
+      if (scheduled) pumpQueue()
+    }, { root: scroll, rootMargin: "150% 0px" })
+
+    container.querySelectorAll("[data-page-number]").forEach(div => io.observe(div))
+    observerRef.current = io
+  }, [enqueueRender, clearPage, pumpQueue])
+
+  const buildPages = useCallback(async (pdf, targetScale) => {
     const container = containerRef.current
     if (!container) return
     container.innerHTML = ""
-    const dpr = window.devicePixelRatio || 1
+    pageMetaRef.current = new Map()
 
     for (let n = 1; n <= pdf.numPages; n++) {
       const page = await pdf.getPage(n)
-      const viewport = page.getViewport({ scale: targetScale })
-      const scaledVP = page.getViewport({ scale: targetScale * dpr })
+      const base = page.getViewport({ scale: 1 })
 
       const pageDiv = document.createElement("div")
       pageDiv.className = styles.page
       pageDiv.dataset.pageNumber = String(n)
+      pageDiv.dataset.visible = ""
+      pageDiv.dataset.renderedScale = ""
       pageDiv.style.setProperty("--total-scale-factor", String(targetScale))
-      pageDiv.style.width = `${viewport.width}px`
-      pageDiv.style.height = `${viewport.height}px`
-
-      const canvas = document.createElement("canvas")
-      canvas.width = scaledVP.width
-      canvas.height = scaledVP.height
-      canvas.style.width = `${viewport.width}px`
-      canvas.style.height = `${viewport.height}px`
+      pageDiv.style.width = `${base.width * targetScale}px`
+      pageDiv.style.height = `${base.height * targetScale}px`
 
       const highlightDiv = document.createElement("div")
       highlightDiv.className = styles.highlightLayer
-
-
-      const textDiv = document.createElement("div")
-      textDiv.className = styles.textLayer
-
-      pageDiv.appendChild(canvas)
       pageDiv.appendChild(highlightDiv)
-      pageDiv.appendChild(textDiv)
       container.appendChild(pageDiv)
 
-      await page.render({ canvasContext: canvas.getContext("2d"), viewport: scaledVP }).promise
-
-      const textLayer = new TextLayer({
-        textContentSource: await page.getTextContent(),
-        container: textDiv,
-        viewport,
-      })
-      await textLayer.render()
+      pageMetaRef.current.set(n, { page, base })
     }
 
+    setupObserver()
     renderHighlightOverlays()
-  }, [renderHighlightOverlays])
+  }, [setupObserver, renderHighlightOverlays])
 
   useEffect(() => {
-    if (!blobUrl) {
-      pdfRef.current = null
-      return
-    }
+    disposedRef.current = false
+    setReady(false)
+    setLoadError(null)
+    if (!srcUrl) return
 
     let cancelled = false
+    if (containerRef.current) containerRef.current.innerHTML = ""
+    observerRef.current?.disconnect()
+    renderQueueRef.current = []
+    pageMetaRef.current = new Map()
+
     getDocument({
-      url: blobUrl,
+      url: srcUrl,
+      rangeChunkSize: 262144,
       cMapUrl: new URL("pdfjs-dist/cmaps/", import.meta.url).href,
       cMapPacked: true,
-    }).promise.then(pdf => {
-      if (cancelled) return
+    }).promise.then(async pdf => {
+      if (cancelled) { pdf.destroy(); return }
+      pdfRef.current?.destroy?.()
       pdfRef.current = pdf
-      renderPages(pdf, scaleRef.current)
+      await buildPages(pdf, scaleRef.current)
+      if (cancelled) return
+      setReady(true)
+    }).catch(error => {
+      if (!cancelled) setLoadError(error?.message || "Falha ao carregar o PDF.")
     })
 
     return () => {
       cancelled = true
+      disposedRef.current = true
+      observerRef.current?.disconnect()
+      renderQueueRef.current = []
     }
-  }, [blobUrl, renderPages])
+  }, [srcUrl, buildPages])
 
   useEffect(() => {
     scaleRef.current = scale
-    if (pdfRef.current) renderPages(pdfRef.current, scale)
-  }, [scale, renderPages])
+    const container = containerRef.current
+    if (!pdfRef.current || !container || !ready) return
+
+    let scheduled = false
+    for (const [pageNumber, meta] of pageMetaRef.current) {
+      const div = container.querySelector(`[data-page-number="${pageNumber}"]`)
+      if (!div) continue
+      clearPage(div)
+      div.style.width = `${meta.base.width * scale}px`
+      div.style.height = `${meta.base.height * scale}px`
+      if (div.dataset.visible === "1") {
+        enqueueRender(pageNumber)
+        scheduled = true
+      }
+    }
+    renderHighlightOverlays()
+    if (scheduled) pumpQueue()
+  }, [scale, ready, clearPage, enqueueRender, pumpQueue, renderHighlightOverlays])
 
   useEffect(() => {
     renderHighlightOverlays()
@@ -346,7 +459,15 @@ export function PaperViewer({
     )
   }
 
-  if (!blobUrl) {
+  if (loadError) {
+    return (
+      <div className={styles.loading} role="alert">
+        <span>Erro ao carregar o PDF: {loadError}</span>
+      </div>
+    )
+  }
+
+  if (!srcUrl || !ready) {
     return (
       <div className={styles.loading}>
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -390,7 +511,7 @@ export function PaperViewer({
           </button>
         </div>
 
-        <a href={blobUrl} download={fileName} className={styles.downloadBtn} title="Baixar PDF">
+        <a href={downloadUrl} download={fileName} className={styles.downloadBtn} title="Baixar PDF">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
             <polyline points="7 10 12 15 17 10"/>

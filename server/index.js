@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { spawnSync } from 'node:child_process'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import express from 'express'
@@ -358,6 +359,32 @@ app.get('/api/papers/:id', (req, res) => {
 })
 
 // Add a new paper
+const COMPRESS_THRESHOLD = 3 * 1024 * 1024
+const COMPRESS_TIMEOUT_MS = 120000
+
+// Re-compress large PDFs with Ghostscript (downsamples images). Returns a
+// smaller buffer or null when gs is unavailable, fails, or gains < 10%.
+function compressPdf(buffer) {
+  try {
+    const result = spawnSync('gs', [
+      '-sDEVICE=pdfwrite',
+      '-dCompatibilityLevel=1.5',
+      '-dPDFSETTINGS=/ebook',
+      '-dDetectDuplicateImages=true',
+      '-dNOPAUSE', '-dQUIET', '-dBATCH',
+      '-sOutputFile=-', '-',
+    ], { input: buffer, timeout: COMPRESS_TIMEOUT_MS, maxBuffer: 1024 * 1024 * 1024 })
+
+    const out = result.stdout
+    const looksLikePdf = out && out.length > 1024 && out[0] === 0x25 && out[1] === 0x50 // "%P"
+    if (result.status !== 0 || !looksLikePdf) return null
+    if (out.length >= buffer.length * 0.9) return null // not worth it
+    return out
+  } catch {
+    return null
+  }
+}
+
 app.post('/api/papers', upload.single('pdf'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
   const id = Date.now().toString()
@@ -370,9 +397,19 @@ app.post('/api/papers', upload.single('pdf'), (req, res) => {
     .get(studyId, req.user.id)
   if (!study) return res.status(400).json({ error: 'Study not found' })
 
+  let pdfBuffer = req.file.buffer
+  if (pdfBuffer.length > COMPRESS_THRESHOLD) {
+    const optimized = compressPdf(pdfBuffer)
+    if (optimized) {
+      meta.compressed = true
+      meta.originalSize = req.file.size
+      pdfBuffer = optimized
+    }
+  }
+
   db.prepare(
     'INSERT INTO papers (id, study_id, file_name, added_at, pdf_data, meta) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, studyId, req.file.originalname, addedAt, req.file.buffer, JSON.stringify(meta))
+  ).run(id, studyId, req.file.originalname, addedAt, pdfBuffer, JSON.stringify(meta))
 
   res.json({ id, studyId, fileName: req.file.originalname, addedAt, meta, blobUrl: null })
 })
@@ -390,9 +427,13 @@ app.get('/api/papers/:id/pdf', (req, res) => {
   const pdfData = Buffer.from(row.pdf_data)
   const fileSize = pdfData.length
   const range = req.headers.range
+  const etag = `W/"${req.params.id}-${fileSize}"`
 
+  res.set('ETag', etag)
+  if (req.headers['if-none-match'] === etag) return res.status(304).end()
+  res.set('Cache-Control', 'private, max-age=86400')
   res.set('Content-Type', 'application/pdf')
-  res.set('Content-Disposition', `inline; filename="${row.file_name}"`)
+  res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename="${row.file_name}"`)
   res.set('Accept-Ranges', 'bytes')
 
   if (range) {

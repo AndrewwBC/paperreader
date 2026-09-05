@@ -8,7 +8,7 @@ import { DropZone } from './components/DropZone'
 import styles from './App.module.css'
 
 export default function App({ user, onOpenAccount }) {
-  const { studies, papers, createStudy, updateStudy, deleteStudy, addPapers, updateMeta, deletePaper, getBlobUrl, migrateFromLocalStorage } = usePapers()
+  const { studies, papers, createStudy, updateStudy, deleteStudy, addPapers, updateMeta, deletePaper, migrateFromLocalStorage } = usePapers()
   const [selectedId, setSelectedId] = useState(null)
   const [selectedStudyId, setSelectedStudyId] = useState(null)
   const [view, setView] = useState('home')
@@ -190,7 +190,8 @@ export default function App({ user, onOpenAccount }) {
   }
 
 
-  const blobUrl = selectedId ? getBlobUrl(selectedId) : null
+  const srcUrl = selectedId ? `/api/papers/${selectedId}/pdf` : null
+  const downloadUrl = selectedId ? `/api/papers/${selectedId}/pdf?dl=1` : null
 
   return (
     <div className={styles.app}>
@@ -485,7 +486,8 @@ export default function App({ user, onOpenAccount }) {
             <div className={styles.editorView}>
               <PaperViewer
                 key={selectedPaper.id}
-                blobUrl={blobUrl}
+                srcUrl={srcUrl}
+                downloadUrl={downloadUrl}
                 fileName={selectedPaper.fileName}
                 highlights={selectedPaper.meta.highlights || []}
                 onHighlightsChange={highlights => handleUpdateMeta({ highlights })}
