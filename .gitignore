@@ -25,3 +25,6 @@ dist-ssr
 
 # SSH keys
 ssh-key-*
+
+# Runtime database
+data/
