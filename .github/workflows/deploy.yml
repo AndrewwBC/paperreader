@@ -11,7 +11,8 @@ jobs:
       - name: Deploy
         run: |
           cd /opt/paperreader
-          git pull origin main
-          npm ci --omit=dev
+          git fetch origin main
+          git reset --hard origin/main
+          npm ci
           npm run build
           sudo systemctl restart paperreader
