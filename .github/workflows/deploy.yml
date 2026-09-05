@@ -6,17 +6,12 @@ on:
 
 jobs:
   deploy:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, oracle]
     steps:
-      - name: Deploy via SSH
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.ORACLE_HOST }}
-          username: ${{ secrets.ORACLE_USER }}
-          key: ${{ secrets.ORACLE_SSH_KEY }}
-          script: |
-            cd /opt/paperreader
-            git pull origin main
-            npm ci --omit=dev
-            npm run build
-            sudo systemctl restart paperreader
+      - name: Deploy
+        run: |
+          cd /opt/paperreader
+          git pull origin main
+          npm ci --omit=dev
+          npm run build
+          sudo systemctl restart paperreader
