@@ -19,7 +19,13 @@ import {
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const app = express()
-const upload = multer({ storage: multer.memoryStorage() })
+const MAX_PDF_BYTES = 20 * 1024 * 1024
+
+// Multer: accept a single PDF up to MAX_PDF_BYTES; larger files fail with 413.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_PDF_BYTES, files: 1 },
+})
 const authAttempts = new Map()
 
 app.set('trust proxy', 1)
@@ -514,6 +520,15 @@ app.delete('/api/papers/:id', (req, res) => {
   `).run(req.params.id, req.user.id)
   if (result.changes === 0) return res.status(404).json({ error: 'Paper not found' })
   res.json({ ok: true })
+})
+
+// Upload error handler — returns JSON instead of Express's default HTML page
+app.use((error, req, res, next) => {
+  if (error?.code === 'LIMIT_FILE_SIZE') {
+    return res.status(413).json({ error: 'O PDF excede o limite de 20 MB.' })
+  }
+  console.error(error)
+  res.status(500).json({ error: 'Erro interno do servidor.' })
 })
 
 if (process.env.NODE_ENV === 'production') {

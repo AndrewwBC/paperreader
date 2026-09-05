@@ -1,10 +1,13 @@
 import { useRef, useState } from "react"
 import styles from "./DropZone.module.css"
 
+const MAX_FILE_BYTES = 20 * 1024 * 1024
+
 export function DropZone({ onFiles }) {
   const inputRef = useRef()
   const [dragging, setDragging] = useState(false)
   const [rejected, setRejected] = useState(0)
+  const [tooLarge, setTooLarge] = useState([])
 
   function selectFiles(fileList) {
     const files = Array.from(fileList)
@@ -12,7 +15,10 @@ export function DropZone({ onFiles }) {
       file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")
     )
     setRejected(files.length - pdfs.length)
-    if (pdfs.length > 0) onFiles(pdfs)
+    const oversized = pdfs.filter(file => file.size > MAX_FILE_BYTES)
+    setTooLarge(oversized.map(file => file.name))
+    const acceptable = pdfs.filter(file => file.size <= MAX_FILE_BYTES)
+    if (acceptable.length > 0) onFiles(acceptable)
   }
 
   function handleDrop(e) {
@@ -64,6 +70,12 @@ export function DropZone({ onFiles }) {
       {rejected > 0 && (
         <p className={styles.rejected}>
           {rejected} arquivo{rejected !== 1 ? "s" : ""} ignorado{rejected !== 1 ? "s" : ""}: apenas PDFs são aceitos.
+        </p>
+      )}
+      {tooLarge.length > 0 && (
+        <p className={styles.rejected}>
+          {tooLarge.length} arquivo{tooLarge.length !== 1 ? "s" : ""} ignorado{tooLarge.length !== 1 ? "s" : ""} por exceder 20 MB:{" "}
+          {tooLarge.join(", ")}
         </p>
       )}
     </div>

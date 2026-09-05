@@ -110,7 +110,7 @@ export function usePapers() {
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
       if (res.status === 413) {
-        throw new Error(`"${file.name}" é muito grande para o servidor.`)
+        throw new Error(`"${file.name}" excede o limite de 20 MB.`)
       }
       throw new Error(data.error || 'Falha ao adicionar o paper.')
     }
