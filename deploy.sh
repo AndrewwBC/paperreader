@@ -12,7 +12,8 @@ echo "==> Pulling latest code..."
 git pull origin main
 
 echo "==> Installing dependencies..."
-npm ci --omit=dev
+# Full install (not --omit=dev): the frontend build needs vite
+npm ci
 
 echo "==> Building frontend..."
 npm run build
