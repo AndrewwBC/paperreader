@@ -38,19 +38,19 @@ export function usePapers() {
   const [papers, setPapers] = useState([])
 
   useEffect(() => {
-    fetch('/api/studies')
+    fetch('/api/studies', { credentials: 'include' })
       .then(r => r.json())
       .then(data => setStudies(data))
       .catch(console.error)
 
-    fetch('/api/papers')
+    fetch('/api/papers', { credentials: 'include' })
       .then(r => r.json())
       .then(data => setPapers(data))
       .catch(console.error)
   }, [])
 
   async function refreshStudies() {
-    const data = await fetch('/api/studies').then(r => r.json())
+    const data = await fetch('/api/studies', { credentials: 'include' }).then(r => r.json())
     setStudies(data)
     return data
   }
@@ -59,6 +59,7 @@ export function usePapers() {
     const res = await fetch('/api/studies', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ name }),
     })
     if (!res.ok) throw new Error('Failed to create study')
@@ -71,6 +72,7 @@ export function usePapers() {
     const res = await fetch(`/api/studies/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify({ name }),
     })
     if (!res.ok) throw new Error('Failed to update study')
@@ -80,7 +82,7 @@ export function usePapers() {
   }
 
   async function deleteStudy(id) {
-    const res = await fetch(`/api/studies/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/studies/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) throw new Error('Failed to delete study')
     const result = await res.json()
     setStudies(prev => prev.filter(study => study.id !== id))
@@ -104,7 +106,7 @@ export function usePapers() {
     formData.append('meta', JSON.stringify(meta))
     formData.append('studyId', studyId)
 
-    const res = await fetch('/api/papers', { method: 'POST', body: formData })
+    const res = await fetch('/api/papers', { method: 'POST', body: formData, credentials: 'include' })
     if (!res.ok) throw new Error('Failed to add paper')
     return res.json()
   }
@@ -157,6 +159,7 @@ export function usePapers() {
     return fetch(`/api/papers/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
       body: JSON.stringify(updates),
     }).then(res => {
       if (!res.ok) throw new Error('Failed to update paper')
@@ -169,7 +172,7 @@ export function usePapers() {
   }
 
   async function deletePaper(id) {
-    const res = await fetch(`/api/papers/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/papers/${id}`, { method: 'DELETE', credentials: 'include' })
     if (!res.ok) throw new Error('Failed to delete paper')
     setPapers(prev => {
       const paper = prev.find(item => item.id === id)
@@ -185,7 +188,7 @@ export function usePapers() {
     if (!paper) return null
     if (paper.blobUrl) return paper.blobUrl
 
-    fetch(`/api/papers/${id}/pdf`)
+    fetch(`/api/papers/${id}/pdf`, { credentials: 'include' })
       .then(r => r.blob())
       .then(blob => {
         const url = URL.createObjectURL(blob)
@@ -220,7 +223,7 @@ export function usePapers() {
         formData.append('meta', JSON.stringify(paper.meta))
         formData.append('studyId', targetStudy.id)
 
-        await fetch('/api/papers', { method: 'POST', body: formData })
+        await fetch('/api/papers', { method: 'POST', body: formData, credentials: 'include' })
         migrated++
         onProgress?.(migrated, oldPapers.length)
       } catch (e) {
@@ -229,7 +232,7 @@ export function usePapers() {
     }
 
     localStorage.removeItem('paper-vault-papers')
-    const fresh = await fetch('/api/papers').then(r => r.json())
+    const fresh = await fetch('/api/papers', { credentials: 'include' }).then(r => r.json())
     setPapers(fresh)
     await refreshStudies()
     return migrated
