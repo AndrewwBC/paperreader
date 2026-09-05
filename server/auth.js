@@ -3,6 +3,7 @@ import db from './db.js'
 
 const SESSION_COOKIE = 'paper_vault_session'
 const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000
 
 function digestToken(token) {
   return createHash('sha256').update(token).digest('hex')
@@ -111,4 +112,48 @@ export function endSession(req, res) {
     secure: req.secure,
     path: '/',
   })
+}
+
+export function createPasswordResetToken(email) {
+  const user = db.prepare('SELECT id FROM users WHERE email = ?').get(email)
+  if (!user) return null
+
+  const token = randomBytes(32).toString('base64url')
+  const tokenHash = digestToken(token)
+  const createdAt = new Date().toISOString()
+  const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString()
+
+  db.prepare(`
+    INSERT INTO password_reset_tokens (token_hash, user_id, created_at, expires_at)
+    VALUES (?, ?, ?, ?)
+  `).run(tokenHash, user.id, createdAt, expiresAt)
+
+  return token
+}
+
+export function verifyPasswordResetToken(token) {
+  const tokenHash = digestToken(token)
+  const row = db.prepare(`
+    SELECT u.id, u.email, u.name, r.expires_at
+    FROM password_reset_tokens r
+    JOIN users u ON u.id = r.user_id
+    WHERE r.token_hash = ?
+  `).get(tokenHash)
+
+  if (!row) return null
+  if (new Date(row.expires_at).getTime() <= Date.now()) {
+    db.prepare('DELETE FROM password_reset_tokens WHERE token_hash = ?').run(tokenHash)
+    return null
+  }
+  return row
+}
+
+export function usePasswordResetToken(token, newPassword) {
+  const row = verifyPasswordResetToken(token)
+  if (!row) return false
+
+  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), row.id)
+  db.prepare('DELETE FROM password_reset_tokens WHERE token_hash = ?').run(digestToken(token))
+  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.id)
+  return true
 }

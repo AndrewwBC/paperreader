@@ -5,12 +5,14 @@ import express from 'express'
 import multer from 'multer'
 import db from './db.js'
 import {
+  createPasswordResetToken,
   endSession,
   getSessionUser,
   hashPassword,
   publicUser,
   requireAuth,
   startSession,
+  usePasswordResetToken,
   verifyPassword,
 } from './auth.js'
 
@@ -110,6 +112,42 @@ app.post('/api/auth/login', limitAuth, (req, res) => {
 
 app.post('/api/auth/logout', (req, res) => {
   endSession(req, res)
+  res.json({ ok: true })
+})
+
+app.post('/api/auth/forgot-password', limitAuth, (req, res) => {
+  const email = normalizeEmail(req.body?.email)
+  if (!email) return res.status(400).json({ error: 'E-mail é obrigatório.' })
+
+  const token = createPasswordResetToken(email)
+  if (!token) {
+    return res.json({ ok: true })
+  }
+
+  console.log(`Password reset token for ${email}: ${token}`)
+  res.json({ ok: true, token })
+})
+
+app.post('/api/auth/reset-password', limitAuth, (req, res) => {
+  const token = String(req.body?.token || '')
+  const password = String(req.body?.password || '')
+  const confirmPassword = String(req.body?.confirmPassword || '')
+
+  if (!token || !password || !confirmPassword) {
+    return res.status(400).json({ error: 'Token, senha e confirmação são obrigatórios.' })
+  }
+  if (password !== confirmPassword) {
+    return res.status(400).json({ error: 'As senhas não conferem.' })
+  }
+  if (password.length < 8 || password.length > 128) {
+    return res.status(400).json({ error: 'A senha deve ter entre 8 e 128 caracteres.' })
+  }
+
+  const ok = usePasswordResetToken(token, password)
+  if (!ok) {
+    return res.status(400).json({ error: 'Token inválido ou expirado.' })
+  }
+
   res.json({ ok: true })
 })
 

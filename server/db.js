@@ -33,13 +33,29 @@ db.exec(`
 `)
 
 db.exec(`
-  CREATE TABLE IF NOT EXISTS studies (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
+  CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    owner_id TEXT,
-    FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
-  )
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS sessions_user_id_idx ON sessions(user_id);
+  CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
+`)
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS password_reset_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+  );
+
+  CREATE INDEX IF NOT EXISTS password_reset_tokens_user_id_idx ON password_reset_tokens(user_id);
+  CREATE INDEX IF NOT EXISTS password_reset_tokens_expires_at_idx ON password_reset_tokens(expires_at);
 `)
 
 db.exec(`
