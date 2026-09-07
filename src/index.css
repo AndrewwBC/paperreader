@@ -15,23 +15,26 @@
   --accent: #2563eb;
   --accent-dim: rgba(37, 99, 235, 0.10);
   --accent-hover: #1d4ed8;
+  --on-accent: #fff;
 
   /* Teal */
   --teal: #0891b2;
   --teal-dim: rgba(8, 145, 178, 0.12);
 
   /* Green — "citado" e datasets */
-  --green: #16a34a;
+  --green: #16783b;
   --green-dim: rgba(22, 163, 74, 0.12);
 
   /* Outros */
   --amber: #d97706;
   --red: #dc2626;
+  --danger-fill: #dc2626;
+  --danger-hover: #b91c1c;
 
   /* Texto */
   --text: #09090b;
   --text-muted: #52525b;
-  --text-subtle: #a1a1aa;
+  --text-subtle: #62626c;
 
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
   --shadow: 0 4px 20px rgba(0,0,0,0.08);
@@ -44,35 +47,33 @@
 }
 
 [data-theme="dark"] {
-  /* Backgrounds — marrom escuro */
-  --bg: #1c1610;
-  --surface: #241d14;
-  --card: #2e2519;
-  --elevated: #382d1f;
-  --border: #4a3d2a;
-  --border-light: #6b5a3e;
+  color-scheme: dark;
+  /* Neutral charcoal surfaces keep long reading sessions quiet. */
+  --bg: #333333;
+  --surface: #2b2b2b;
+  --card: #3b3b3b;
+  --elevated: #444444;
+  --border: #5f5f64;
+  --border-light: #8c8a93;
 
-  /* Accent — âmbar/dourado */
-  --accent: #d4a73a;
-  --accent-dim: rgba(212, 167, 58, 0.15);
-  --accent-hover: #e8bc4a;
+  /* Purple identifies actions, focus, and the current selection. */
+  --accent: #cfb3ff;
+  --accent-dim: rgba(207, 179, 255, 0.10);
+  --accent-hover: #dfccff;
+  --on-accent: #29183e;
 
-  /* Teal */
-  --teal: #4a9a8a;
-  --teal-dim: rgba(74, 154, 138, 0.15);
+  --teal: #8adce5;
+  --teal-dim: rgba(138, 220, 229, 0.10);
+  --green: #a0dfad;
+  --green-dim: rgba(160, 223, 173, 0.10);
+  --amber: #efcf83;
+  --red: #ffb4bc;
+  --danger-fill: #b3263d;
+  --danger-hover: #982037;
 
-  /* Green */
-  --green: #6aaa4a;
-  --green-dim: rgba(106, 170, 74, 0.15);
-
-  /* Outros */
-  --amber: #d4a73a;
-  --red: #d46060;
-
-  /* Texto */
-  --text: #f0e8d8;
-  --text-muted: #a89070;
-  --text-subtle: #6b5a3e;
+  --text: #f5f3f7;
+  --text-muted: #d0ccd5;
+  --text-subtle: #c4c0ca;
 
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.3);
   --shadow: 0 4px 20px rgba(0,0,0,0.4);
@@ -120,4 +121,16 @@ input, textarea, select {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-subtle);
+}
+
+button { line-height: 1.4; }
+button:disabled { cursor: not-allowed; opacity: .5; }
+button:focus-visible, a:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+button svg { flex-shrink: 0; }
+input::placeholder, textarea::placeholder { color: var(--text-muted); opacity: 1; }
+h1, h2, h3 { text-wrap: balance; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
 }

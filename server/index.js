@@ -5,6 +5,10 @@ import { dirname, join } from 'path'
 import express from 'express'
 import multer from 'multer'
 import db from './db.js'
+import { recoveryAvailable, deliverRecovery } from './recovery.js'
+import { sendVerification, verifyEmail } from './verification.js'
+import { installBackupRoutes } from './backup.js'
+import { installSharingRoutes, accessSql, editSql, studyPermission, studyDetails } from './sharing.js'
 import {
   createPasswordResetToken,
   endSession,
@@ -29,6 +33,7 @@ const upload = multer({
 const authAttempts = new Map()
 
 app.set('trust proxy', 1)
+app.use('/api/backup/restore', requireAuth, express.json({ limit: '100mb' }))
 app.use(express.json())
 
 if (process.env.NODE_ENV === 'production') {
@@ -60,7 +65,7 @@ app.get('/api/auth/me', (req, res) => {
   res.json({ user: publicUser(user) })
 })
 
-app.post('/api/auth/register', limitAuth, (req, res) => {
+app.post('/api/auth/register', limitAuth, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   const email = normalizeEmail(req.body?.email)
   const password = String(req.body?.password || '')
@@ -100,7 +105,8 @@ app.post('/api/auth/register', limitAuth, (req, res) => {
 
   authAttempts.delete(req.ip || req.socket.remoteAddress || 'unknown')
   startSession(req, res, id)
-  res.status(201).json({ user: { id, name, email, createdAt } })
+  res.status(201).json({ user: { id, name, email, createdAt, emailVerified: false } })
+  await sendVerification({ id, email })
 })
 
 app.post('/api/auth/login', limitAuth, (req, res) => {
@@ -122,17 +128,31 @@ app.post('/api/auth/logout', (req, res) => {
   res.json({ ok: true })
 })
 
-app.post('/api/auth/forgot-password', limitAuth, (req, res) => {
+app.post('/api/auth/forgot-password', limitAuth, async (req, res) => {
   const email = normalizeEmail(req.body?.email)
-  if (!email) return res.status(400).json({ error: 'E-mail é obrigatório.' })
-
-  const token = createPasswordResetToken(email)
-  if (!token) {
-    return res.json({ ok: true })
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) {
+    return res.status(400).json({ error: 'Informe um e-mail válido.' })
   }
+  if (!recoveryAvailable()) return res.status(503).json({ error: 'O envio de recuperação ainda não foi configurado. Entre em contato com o administrador.' })
+  const token = createPasswordResetToken(email)
+  // Delivery runs after the same response for existing and unknown accounts.
+  res.json({ ok: true, message: 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.' })
+  if (token) {
+    try { await deliverRecovery(email, token) }
+    catch { console.error('Falha na entrega do e-mail de recuperação. Verifique a configuração SMTP.') }
+  }
+})
 
-  console.log(`Password reset token for ${email}: ${token}`)
-  res.json({ ok: true, token })
+app.post('/api/auth/verify-email', limitAuth, (req, res) => {
+  if (!verifyEmail(req.body?.token)) return res.status(400).json({ error: 'Link inválido, expirado ou já utilizado. Solicite uma nova confirmação na sua conta.' })
+  res.json({ ok: true })
+})
+
+app.post('/api/auth/resend-verification', requireAuth, limitAuth, async (req, res) => {
+  if (req.user.email_verified_at) return res.json({ ok: true, message: 'Seu e-mail já está confirmado.' })
+  const sent = await sendVerification(req.user)
+  if (!sent) return res.status(503).json({ error: 'Não foi possível enviar a confirmação. Tente novamente mais tarde.' })
+  res.json({ ok: true, message: 'Enviamos um novo link de confirmação. Confira seu e-mail e a pasta de spam.' })
 })
 
 app.post('/api/auth/reset-password', limitAuth, (req, res) => {
@@ -158,7 +178,7 @@ app.post('/api/auth/reset-password', limitAuth, (req, res) => {
   res.json({ ok: true })
 })
 
-app.put('/api/auth/me', requireAuth, (req, res) => {
+app.put('/api/auth/me', requireAuth, async (req, res) => {
   const name = String(req.body?.name || '').trim()
   const email = normalizeEmail(req.body?.email)
   const currentPassword = String(req.body?.currentPassword || '')
@@ -184,14 +204,26 @@ app.put('/api/auth/me', requireAuth, (req, res) => {
     return res.status(409).json({ error: 'Este e-mail já está cadastrado.' })
   }
 
-  db.prepare(`
-    UPDATE users
-    SET name = ?, email = ?, password_hash = ?
-    WHERE id = ?
-  `).run(name, email, newPassword ? hashPassword(newPassword) : user.password_hash, user.id)
-
+  const emailChanged = email !== user.email
+  const passwordHash = newPassword ? hashPassword(newPassword) : user.password_hash
+  db.exec('BEGIN')
+  try {
+    db.prepare(`UPDATE users SET name = ?, email = ?, password_hash = ?, email_verified_at = ? WHERE id = ?`)
+      .run(name, email, passwordHash, emailChanged ? null : user.email_verified_at, user.id)
+    if (emailChanged || newPassword) {
+      db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(user.id)
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(user.id)
+    }
+    if (emailChanged) db.prepare('DELETE FROM email_verification_tokens WHERE user_id = ?').run(user.id)
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
+  if (emailChanged || newPassword) startSession(req, res, user.id)
   const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id)
   res.json({ user: publicUser(updatedUser) })
+  if (emailChanged) await sendVerification(updatedUser)
 })
 
 app.delete('/api/auth/me', requireAuth, (req, res) => {
@@ -216,52 +248,29 @@ app.delete('/api/auth/me', requireAuth, (req, res) => {
 })
 
 app.use('/api', requireAuth)
+installBackupRoutes(app)
+installSharingRoutes(app)
 
-// List studies
+// List owned studies and accepted memberships.
 app.get('/api/studies', (req, res) => {
-  const studies = db.prepare(`
-    SELECT
-      s.id,
-      s.name,
-      s.created_at,
-      COUNT(p.id) AS paper_count
-    FROM studies s
-    LEFT JOIN papers p ON p.study_id = s.id
-    WHERE s.owner_id = ?
-    GROUP BY s.id
-    ORDER BY s.created_at ASC
-  `).all(req.user.id)
-
-  res.json(studies.map(s => ({
-    id: s.id,
-    name: s.name,
-    createdAt: s.created_at,
-    paperCount: s.paper_count,
-  })))
+  const studies = db.prepare(`SELECT s.id, s.name, s.created_at, COUNT(p.id) AS paper_count,
+    CASE WHEN s.owner_id = ? THEN 'owner' ELSE m.role END AS role
+    FROM studies s LEFT JOIN papers p ON p.study_id = s.id
+    LEFT JOIN study_members m ON m.study_id = s.id AND m.user_id = ?
+    WHERE ${accessSql} GROUP BY s.id ORDER BY s.created_at ASC
+  `).all(req.user.id, req.user.id, req.user.id, req.user.id)
+  res.json(studies.map(studyDetails))
 })
 
-
-// Get a study
 app.get('/api/studies/:id', (req, res) => {
-  const study = db.prepare(`
-    SELECT
-      s.id,
-      s.name,
-      s.created_at,
-      COUNT(p.id) AS paper_count
-    FROM studies s
-    LEFT JOIN papers p ON p.study_id = s.id
-    WHERE s.id = ? AND s.owner_id = ?
-    GROUP BY s.id
-  `).get(req.params.id, req.user.id)
-
+  const study = db.prepare(`SELECT s.id, s.name, s.created_at, COUNT(p.id) AS paper_count,
+    CASE WHEN s.owner_id = ? THEN 'owner' ELSE m.role END AS role
+    FROM studies s LEFT JOIN papers p ON p.study_id = s.id
+    LEFT JOIN study_members m ON m.study_id = s.id AND m.user_id = ?
+    WHERE s.id = ? AND ${accessSql} GROUP BY s.id
+  `).get(req.user.id, req.user.id, req.params.id, req.user.id, req.user.id)
   if (!study) return res.status(404).json({ error: 'Study not found' })
-  res.json({
-    id: study.id,
-    name: study.name,
-    createdAt: study.created_at,
-    paperCount: study.paper_count,
-  })
+  res.json(studyDetails(study))
 })
 
 // Create a study
@@ -270,13 +279,13 @@ app.post('/api/studies', (req, res) => {
   if (!name) return res.status(400).json({ error: 'Study name is required' })
   if (name.length > 80) return res.status(400).json({ error: 'Study name is too long' })
 
-  const id = Date.now().toString()
+  const id = randomUUID()
   const createdAt = new Date().toISOString()
 
   db.prepare('INSERT INTO studies (id, name, created_at, owner_id) VALUES (?, ?, ?, ?)')
     .run(id, name, createdAt, req.user.id)
 
-  res.json({ id, name, createdAt, paperCount: 0 })
+  res.json({ id, name, createdAt, paperCount: 0, role: 'owner', canEdit: true, isOwner: true })
 })
 
 
@@ -299,6 +308,7 @@ app.put('/api/studies/:id', (req, res) => {
     name,
     createdAt: study.created_at,
     paperCount,
+    role: 'owner', canEdit: true, isOwner: true,
   })
 })
 
@@ -330,9 +340,9 @@ app.get('/api/papers', (req, res) => {
     SELECT p.id, p.study_id, p.file_name, p.added_at, p.meta
     FROM papers p
     JOIN studies s ON s.id = p.study_id
-    WHERE s.owner_id = ?
+    WHERE ${accessSql}
     ORDER BY p.added_at DESC
-  `).all(req.user.id)
+  `).all(req.user.id, req.user.id)
   res.json(rows.map(r => ({
     id: r.id,
     studyId: r.study_id,
@@ -350,8 +360,8 @@ app.get('/api/papers/:id', (req, res) => {
     SELECT p.id, p.study_id, p.file_name, p.added_at, p.meta
     FROM papers p
     JOIN studies s ON s.id = p.study_id
-    WHERE p.id = ? AND s.owner_id = ?
-  `).get(req.params.id, req.user.id)
+    WHERE p.id = ? AND ${accessSql}
+  `).get(req.params.id, req.user.id, req.user.id)
 
   if (!row) return res.status(404).json({ error: 'Paper not found' })
   res.json({
@@ -388,9 +398,8 @@ app.post('/api/papers', upload.single('pdf'), async (req, res) => {
   const addedAt = new Date().toISOString()
 
   if (!studyId) return res.status(400).json({ error: 'Study is required' })
-  const study = db.prepare('SELECT id FROM studies WHERE id = ? AND owner_id = ?')
-    .get(studyId, req.user.id)
-  if (!study) return res.status(400).json({ error: 'Study not found' })
+  const study = studyPermission(studyId, req.user.id)
+  if (!study || study.role === 'viewer') return res.status(403).json({ error: 'Você não tem permissão para editar este estudo.' })
 
   let pdfBuffer = req.file.buffer
   if (pdfBuffer.length > COMPRESS_THRESHOLD) {
@@ -401,6 +410,9 @@ app.post('/api/papers', upload.single('pdf'), async (req, res) => {
       pdfBuffer = optimized
     }
   }
+
+  const currentAccess = studyPermission(studyId, req.user.id)
+  if (!currentAccess || currentAccess.role === 'viewer') return res.status(403).json({ error: 'Seu acesso de edição foi revogado.' })
 
   db.prepare(
     'INSERT INTO papers (id, study_id, file_name, added_at, pdf_data, meta) VALUES (?, ?, ?, ?, ?, ?)'
@@ -415,8 +427,8 @@ app.get('/api/papers/:id/pdf', (req, res) => {
     SELECT p.pdf_data, p.file_name
     FROM papers p
     JOIN studies s ON s.id = p.study_id
-    WHERE p.id = ? AND s.owner_id = ?
-  `).get(req.params.id, req.user.id)
+    WHERE p.id = ? AND ${accessSql}
+  `).get(req.params.id, req.user.id, req.user.id)
   if (!row) return res.status(404).json({ error: 'Not found' })
 
   const pdfData = Buffer.from(row.pdf_data)
@@ -425,7 +437,7 @@ app.get('/api/papers/:id/pdf', (req, res) => {
 
   res.set('ETag', etag)
   if (req.headers['if-none-match'] === etag) return res.status(304).end()
-  res.set('Cache-Control', 'private, max-age=86400')
+  res.set('Cache-Control', 'private, no-cache')
   res.attachment(row.file_name)
   res.type('application/pdf')
   if (!req.query.dl) res.set('Content-Disposition', res.get('Content-Disposition').replace(/^attachment/, 'inline'))
@@ -454,8 +466,8 @@ app.put('/api/papers/:id', (req, res) => {
     SELECT p.id, p.study_id, p.file_name, p.added_at, p.meta
     FROM papers p
     JOIN studies s ON s.id = p.study_id
-    WHERE p.id = ? AND s.owner_id = ?
-  `).get(req.params.id, req.user.id)
+    WHERE p.id = ? AND ${editSql}
+  `).get(req.params.id, req.user.id, req.user.id)
   if (!row) return res.status(404).json({ error: 'Paper not found' })
 
   const studyId = req.body?.studyId === undefined
@@ -469,9 +481,8 @@ app.put('/api/papers/:id', (req, res) => {
     : JSON.parse(row.meta)
 
   if (!fileName) return res.status(400).json({ error: 'File name is required' })
-  const study = db.prepare('SELECT id FROM studies WHERE id = ? AND owner_id = ?')
-    .get(studyId, req.user.id)
-  if (!study) return res.status(400).json({ error: 'Study not found' })
+  const study = studyPermission(studyId, req.user.id)
+  if (!study || study.role === 'viewer') return res.status(403).json({ error: 'Você não tem permissão para editar este estudo.' })
 
   db.prepare('UPDATE papers SET study_id = ?, file_name = ?, meta = ? WHERE id = ?')
     .run(studyId, fileName, JSON.stringify(meta), req.params.id)
@@ -492,8 +503,8 @@ app.put('/api/papers/:id/meta', (req, res) => {
     SELECT p.meta
     FROM papers p
     JOIN studies s ON s.id = p.study_id
-    WHERE p.id = ? AND s.owner_id = ?
-  `).get(req.params.id, req.user.id)
+    WHERE p.id = ? AND ${editSql}
+  `).get(req.params.id, req.user.id, req.user.id)
   if (!row) return res.status(404).json({ error: 'Not found' })
   const updated = { ...JSON.parse(row.meta), ...req.body }
   db.prepare('UPDATE papers SET meta = ? WHERE id = ?').run(JSON.stringify(updated), req.params.id)
@@ -505,8 +516,8 @@ app.delete('/api/papers/:id', (req, res) => {
   const result = db.prepare(`
     DELETE FROM papers
     WHERE id = ?
-      AND study_id IN (SELECT id FROM studies WHERE owner_id = ?)
-  `).run(req.params.id, req.user.id)
+      AND study_id IN (SELECT s.id FROM studies s WHERE ${editSql})
+  `).run(req.params.id, req.user.id, req.user.id)
   if (result.changes === 0) return res.status(404).json({ error: 'Paper not found' })
   res.json({ ok: true })
 })
@@ -516,6 +527,8 @@ app.use((error, req, res, _next) => {
   if (error?.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ error: 'O PDF excede o limite de 20 MB.' })
   }
+  if (error?.type === 'entity.too.large') return res.status(413).json({ error: 'O arquivo excede o limite de 100 MB.' })
+  if (error?.type === 'entity.parse.failed') return res.status(400).json({ error: 'JSON inválido.' })
   console.error(error)
   res.status(500).json({ error: 'Erro interno do servidor.' })
 })

@@ -151,7 +151,7 @@
   border: 1px solid var(--accent);
   border-radius: 6px;
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
   font-size: 12px;
   font-weight: 700;
   transition: background 0.15s;
@@ -393,7 +393,7 @@
 .primaryAction {
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .primaryAction:hover:not(:disabled) {
@@ -415,13 +415,13 @@
 
 .deleteAction {
   border: 1px solid var(--red);
-  background: var(--red);
+  background: var(--danger-fill);
   color: #fff;
 }
 
 .deleteAction:hover:not(:disabled) {
-  background: #b91c1c;
-  border-color: #b91c1c;
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
 }
 
 .primaryAction:disabled,
@@ -523,3 +523,45 @@
     gap: 14px;
   }
 }
+
+/* Shared account and access controls. */
+.page { overflow-y: auto; background: var(--bg); }
+.panel { width: min(100%, 440px); background: var(--bg); box-shadow: none; border-radius: 12px; }
+.panelHeader { padding: 28px 28px 4px; }
+.panelHeader > span { display: none; }
+.panelHeader h1 { font-size: 24px; letter-spacing: -0.025em; text-wrap: balance; }
+.form { padding: 24px 28px 28px; gap: 18px; }
+.form label > span, .field > span { font-size: 13px; color: var(--text); }
+.form input, .field input { min-height: 44px; font-size: 16px; }
+.modeSwitch button, .accountTabs button { min-height: 44px; font-size: 13px; }
+.submit, .primaryAction, .secondaryAction, .deleteAction { min-height: 44px; height: auto; padding: 10px 16px; font-size: 14px; line-height: 1.4; border-radius: 8px; }
+.submit, .primaryAction { color: var(--on-accent); }
+.help { color: var(--text-muted); font-size: 14px; line-height: 1.6; margin: 12px 0 0; }
+.textAction { border: 0; background: transparent; color: var(--accent); min-height: 40px; padding: 8px; font-size: 14px; font-weight: 600; text-decoration: underline; text-underline-offset: 4px; }
+.textAction:hover { background: var(--accent-dim); border-radius: 6px; }
+.error, .accountError, .accountSuccess { border: 1px solid currentColor; border-radius: 8px; font-size: 13px; margin: 0; padding: 12px; }
+.accountDialog { border: 0; padding: 0; background: transparent; color: var(--text); max-width: calc(100vw - 32px); max-height: calc(100dvh - 32px); width: 520px; }
+.accountDialog::backdrop { background: rgb(0 0 0 / 45%); }
+.accountPanel { width: 100%; max-height: calc(100dvh - 32px); background: var(--bg); box-shadow: none; }
+.accountHeader { padding: 20px 24px; }
+.accountBody { padding: 24px; }
+.accountTabs { grid-template-columns: repeat(3, 1fr); }
+.accountIdentity div > span { display: block; overflow-wrap: anywhere; }
+.accountSection h3, .dangerSection h3 { font-size: 16px; }
+.accountSection p, .dangerSection p { font-size: 14px; line-height: 1.6; }
+.iconButton { width: 40px; height: 40px; flex-shrink: 0; }
+.field input[type="file"] { height: auto; padding: 10px; max-width: 100%; font-size: 13px; }
+.field input::file-selector-button { border: 0; border-radius: 4px; padding: 6px 8px; margin-right: 8px; background: var(--surface); color: var(--text); cursor: pointer; }
+@media (max-width: 480px) {
+  .page { padding: 20px 16px; gap: 32px; }
+  .panel { margin-bottom: 20px; }
+  .panelHeader, .form, .accountBody { padding-left: 20px; padding-right: 20px; }
+  .accountActions { flex-wrap: wrap; }
+}
+.emailStatus { padding: 16px; margin-bottom: 24px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); }
+.emailStatus strong { font-size: 14px; }
+.emailStatus > p { font-size: 13px; color: var(--text-muted); overflow-wrap: anywhere; margin: 8px 0 12px; }
+.emailStatus .accountError, .emailStatus .accountSuccess { margin-top: 12px; }
+.downloadLink { color: var(--accent); text-decoration: underline; text-underline-offset: 3px; font-size: 14px; padding: 12px 0; }
+.downloadLink:not([hidden]) { display: block; }
+.downloadAction { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }

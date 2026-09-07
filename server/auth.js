@@ -57,6 +57,7 @@ export function publicUser(user) {
     name: user.name,
     email: user.email,
     createdAt: user.created_at,
+    emailVerified: Boolean(user.email_verified_at),
   }
 }
 
@@ -66,7 +67,7 @@ export function getSessionUser(req) {
 
   const tokenHash = digestToken(token)
   const session = db.prepare(`
-    SELECT u.id, u.name, u.email, u.created_at, s.expires_at
+    SELECT u.id, u.name, u.email, u.created_at, u.email_verified_at, s.expires_at
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     WHERE s.token_hash = ?
@@ -123,6 +124,7 @@ export function createPasswordResetToken(email) {
   const createdAt = new Date().toISOString()
   const expiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString()
 
+  db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ? OR expires_at <= ?').run(user.id, createdAt)
   db.prepare(`
     INSERT INTO password_reset_tokens (token_hash, user_id, created_at, expires_at)
     VALUES (?, ?, ?, ?)
@@ -152,8 +154,16 @@ export function usePasswordResetToken(token, newPassword) {
   const row = verifyPasswordResetToken(token)
   if (!row) return false
 
-  db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(hashPassword(newPassword), row.id)
-  db.prepare('DELETE FROM password_reset_tokens WHERE token_hash = ?').run(digestToken(token))
-  db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.id)
+  const passwordHash = hashPassword(newPassword)
+  db.exec('BEGIN')
+  try {
+    db.prepare('UPDATE users SET password_hash = ? WHERE id = ?').run(passwordHash, row.id)
+    db.prepare('DELETE FROM password_reset_tokens WHERE user_id = ?').run(row.id)
+    db.prepare('DELETE FROM sessions WHERE user_id = ?').run(row.id)
+    db.exec('COMMIT')
+  } catch (error) {
+    db.exec('ROLLBACK')
+    throw error
+  }
   return true
 }

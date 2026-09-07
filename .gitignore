@@ -28,3 +28,7 @@ ssh-key-*
 
 # Runtime database
 data/
+# Local secrets
+.env
+.env.*
+!.env.example

@@ -1,17 +1,20 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { usePapers } from './hooks/usePapers'
 import { Sidebar } from './components/Sidebar'
 import { PaperCard } from './components/PaperCard'
 import { PaperViewer } from './components/PaperViewer'
 import { MetadataPanel } from './components/MetadataPanel'
+import { SharingPanel, InvitationPanel } from './components/SharingPanel'
 import { DropZone } from './components/DropZone'
 import styles from './App.module.css'
+import { useNavigation, navigationHref, followLink } from './hooks/useNavigation'
 
 export default function App({ user, onOpenAccount }) {
-  const { studies, papers, createStudy, updateStudy, deleteStudy, addPapers, updateMeta, deletePaper, migrateFromLocalStorage } = usePapers()
-  const [selectedId, setSelectedId] = useState(null)
-  const [selectedStudyId, setSelectedStudyId] = useState(null)
-  const [view, setView] = useState('home')
+  const { studies, papers, loading, loadError, refreshLibrary, createStudy, updateStudy, deleteStudy, addPapers, updateMeta, deletePaper, migrateFromLocalStorage } = usePapers()
+  const { route, navigate } = useNavigation()
+  const { paperId: selectedId, studyId: selectedStudyId, view } = route
+  const [sharingStudy, setSharingStudy] = useState(null)
+  const [invitationToken, setInvitationToken] = useState(() => new URLSearchParams(window.location.search).get('invite'))
   const [showUpload, setShowUpload] = useState(false)
   const [showCreateStudy, setShowCreateStudy] = useState(false)
   const [studyDraft, setStudyDraft] = useState('')
@@ -19,11 +22,11 @@ export default function App({ user, onOpenAccount }) {
   const [deleteTarget, setDeleteTarget] = useState(null)
   const [crudBusy, setCrudBusy] = useState(false)
   const [adding, setAdding] = useState(false)
-  const [showSidebar, setShowSidebar] = useState(true)
+  const [showSidebar, setShowSidebar] = useState(() => window.innerWidth > 720)
   const [uploadProgress, setUploadProgress] = useState(null)
   const [uploadResult, setUploadResult] = useState(null)
-  const [showPanel, setShowPanel] = useState(true)
-  const [highlightFocus, setHighlightFocus] = useState(null)
+  const [showPanel, setShowPanel] = useState(() => Boolean(route.annotationId) || window.innerWidth > 900)
+  const highlightFocus = useMemo(() => route.annotationId ? { id: route.annotationId } : null, [route.annotationId])
   const [dark, setDark] = useState(() => localStorage.getItem('theme') === 'dark')
 
   useEffect(() => {
@@ -49,18 +52,20 @@ export default function App({ user, onOpenAccount }) {
     setMigrationCount(0)
   }
 
-  const activeStudyId = studies.some(study => study.id === selectedStudyId)
-    ? selectedStudyId
-    : null
+  const linkedPaper = papers.find(p => p.id === selectedId)
+  const activeStudyId = linkedPaper?.studyId || selectedStudyId || null
   const selectedStudy = studies.find(study => study.id === activeStudyId)
+  const canEdit = Boolean(selectedStudy?.canEdit || selectedStudy?.isOwner || selectedStudy?.role === 'owner')
   const visiblePapers = papers.filter(p => p.studyId === activeStudyId)
   const selectedPaper = papers.find(p => p.id === selectedId && p.studyId === activeStudyId)
+  const missingResource = !loading && !loadError && ((selectedId && !selectedPaper) || (selectedStudyId && !selectedStudy))
   const recentPapers = visiblePapers
     .filter(paper => paper.meta.lastOpenedAt)
     .sort((a, b) => new Date(b.meta.lastOpenedAt) - new Date(a.meta.lastOpenedAt))
     .slice(0, 5)
 
   function openUpload() {
+    if (!canEdit) return
     setUploadProgress(null)
     setUploadResult(null)
     setShowUpload(true)
@@ -74,7 +79,7 @@ export default function App({ user, onOpenAccount }) {
   }
 
   async function handleFiles(files) {
-    if (!activeStudyId || files.length === 0) return
+    if (!canEdit || !activeStudyId || files.length === 0) return
     setAdding(true)
     setUploadResult(null)
     setUploadProgress({ done: 0, total: files.length, fileName: files[0].name })
@@ -92,22 +97,16 @@ export default function App({ user, onOpenAccount }) {
 
   async function handleCreateStudy(name) {
     const study = await createStudy(name)
-    setSelectedStudyId(study.id)
-    setSelectedId(null)
-    setView('cards')
+    navigate({ studyId: study.id })
     return study
   }
 
   function handleSelectStudy(id) {
-    setSelectedStudyId(id)
-    setSelectedId(null)
-    setView('cards')
+    navigate({ studyId: id })
   }
 
   function handleHome() {
-    setSelectedStudyId(null)
-    setSelectedId(null)
-    setView('home')
+    navigate({})
   }
 
   async function submitHomeStudy(e) {
@@ -128,6 +127,7 @@ export default function App({ user, onOpenAccount }) {
 
   function openEditStudy(study, event) {
     event?.stopPropagation()
+    if (!study.isOwner) return
     setStudyDraft(study.name)
     setEditingStudy(study)
     setShowCreateStudy(false)
@@ -146,12 +146,12 @@ export default function App({ user, onOpenAccount }) {
 
   function requestDeleteStudy(study, event) {
     event?.stopPropagation()
-    setDeleteTarget({ type: 'study', item: study })
+    if (study.isOwner) setDeleteTarget({ type: 'study', item: study })
   }
 
   function requestDeletePaper(id) {
     const paper = papers.find(item => item.id === id)
-    if (paper) setDeleteTarget({ type: 'paper', item: paper })
+    if (canEdit && paper) setDeleteTarget({ type: 'paper', item: paper })
   }
 
   async function confirmDelete() {
@@ -164,8 +164,7 @@ export default function App({ user, onOpenAccount }) {
     } else {
       await deletePaper(deleteTarget.item.id)
       if (selectedId === deleteTarget.item.id) {
-        setSelectedId(null)
-        setView('cards')
+        navigate({ studyId: activeStudyId })
       }
     }
     setCrudBusy(false)
@@ -176,17 +175,14 @@ export default function App({ user, onOpenAccount }) {
     const paper = papers.find(item => item.id === id)
     if (!paper) return
 
-    updateMeta(id, { lastOpenedAt: new Date().toISOString() })
-    setHighlightFocus(null)
+    if (studies.find(study => study.id === paper.studyId)?.canEdit) updateMeta(id, { lastOpenedAt: new Date().toISOString() })
     setShowSidebar(false)
     setShowPanel(true)
-    setSelectedStudyId(paper.studyId)
-    setSelectedId(id)
-    setView('editor')
+    navigate({ studyId: paper.studyId, paperId: id })
   }
 
   function handleUpdateMeta(updates) {
-    if (selectedId) updateMeta(selectedId, updates)
+    if (canEdit && selectedId) updateMeta(selectedId, updates)
   }
 
 
@@ -206,6 +202,7 @@ export default function App({ user, onOpenAccount }) {
           onCreateStudy={handleCreateStudy}
           onHome={handleHome}
           onSelect={handleSelect}
+          canEdit={canEdit}
           onAdd={() => activeStudyId && openUpload()}
           onDelete={requestDeletePaper}
         />
@@ -261,7 +258,7 @@ export default function App({ user, onOpenAccount }) {
           <div className={styles.viewSwitcher}>
             <button
               className={`${styles.viewBtn} ${view === 'cards' ? styles.active : ''}`}
-              onClick={() => selectedStudy && setView('cards')}
+              onClick={() => selectedStudy && navigate({ studyId: activeStudyId, paperId: selectedId, view: 'cards' })}
               disabled={!selectedStudy}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -272,7 +269,7 @@ export default function App({ user, onOpenAccount }) {
             </button>
             <button
               className={`${styles.viewBtn} ${view === 'editor' ? styles.active : ''}`}
-              onClick={() => selectedPaper && setView('editor')}
+              onClick={() => selectedPaper && navigate({ studyId: activeStudyId, paperId: selectedId })}
               disabled={!selectedPaper}
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -282,7 +279,7 @@ export default function App({ user, onOpenAccount }) {
               {selectedPaper ? (selectedPaper.meta.title || selectedPaper.fileName).split(/\s+/).filter(Boolean).slice(0, 5).join(' ') : 'Editor'}
             </button>
           </div>
-          {view === 'editor' && selectedPaper && (
+          {!loading && !loadError && !missingResource && view === 'editor' && selectedPaper && (
             <button className={styles.toggleBtn} onClick={() => setShowPanel(v => !v)} title={showPanel ? 'Recolher painel de leitura' : 'Abrir painel de leitura'} aria-label={showPanel ? 'Recolher painel de leitura' : 'Abrir painel de leitura'} aria-expanded={showPanel}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 {showPanel
@@ -303,7 +300,9 @@ export default function App({ user, onOpenAccount }) {
               </svg>
             )}
           </button>
-          <button className={styles.newBtn} onClick={() => view === 'home' ? openCreateStudy() : openUpload()}>
+          {selectedStudy?.isOwner && <button className={styles.secondaryBtn} onClick={() => setSharingStudy(selectedStudy)}>Compartilhar</button>}
+          {selectedStudy && !canEdit && <span className={styles.accessLabel}>Somente leitura</span>}
+          <button className={styles.newBtn} disabled={view !== 'home' && !canEdit} onClick={() => view === 'home' ? openCreateStudy() : openUpload()}>
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
@@ -322,7 +321,7 @@ export default function App({ user, onOpenAccount }) {
         <div className={styles.content}>
 
           {/* HOME VIEW */}
-          {view === 'home' && (
+          {!loading && !loadError && !missingResource && view === 'home' && (
             <section className={styles.homeView}>
               <header className={styles.homeHeader}>
                 <div>
@@ -347,7 +346,8 @@ export default function App({ user, onOpenAccount }) {
                   >
                     <div className={styles.studyCardTop}>
                       <span className={styles.studyIndex}>{String(index + 1).padStart(2, '0')}</span>
-                      <div className={styles.studyActions}>
+                      {study.isOwner && <div className={styles.studyActions}>
+                        <button className={styles.studyAction} onClick={event => { event.stopPropagation(); setSharingStudy(study) }} title="Compartilhar estudo" aria-label={`Compartilhar ${study.name}`}>↗</button>
                         <button
                           className={styles.studyAction}
                           onClick={e => openEditStudy(study, e)}
@@ -366,11 +366,11 @@ export default function App({ user, onOpenAccount }) {
                             <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
                           </svg>
                         </button>
-                      </div>
+                      </div>}
                     </div>
                     <div className={styles.studyCardBody}>
-                      <h2 title={study.name}>{study.name}</h2>
-                      <p>{study.paperCount} paper{study.paperCount !== 1 ? 's' : ''}</p>
+                      <h2 title={study.name}><a href={navigationHref({ studyId: study.id })} onClick={event => { event.stopPropagation(); followLink(event, () => handleSelectStudy(study.id)) }} style={{ color: 'inherit', textDecoration: 'none' }}>{study.name}</a></h2>
+                      <p>{study.paperCount} paper{study.paperCount !== 1 ? 's' : ''}{!study.isOwner && ` · ${study.canEdit ? 'Compartilhado · Pode editar' : 'Compartilhado · Somente leitura'}`}</p>
                     </div>
                     <div className={styles.studyCardFooter}>
                       <span>Criado em {new Intl.DateTimeFormat('pt-BR').format(new Date(study.createdAt))}</span>
@@ -392,19 +392,19 @@ export default function App({ user, onOpenAccount }) {
           )}
 
           {/* CARDS VIEW */}
-          {view === 'cards' && (
+          {!loading && !loadError && !missingResource && view === 'cards' && (
             <div className={styles.cardsView}>
               {visiblePapers.length === 0 ? (
                 <div className={styles.emptyState}>
                   <div className={styles.emptyIcon}>&#9964;</div>
                   <h2>{selectedStudy?.name || 'Novo estudo'}</h2>
-                  <p>Adicione o primeiro PDF deste estudo.<br />Os metadados, notas e citações ficam separados por estudo.</p>
-                  <button className={styles.emptyBtn} onClick={() => openUpload()}>
+                  <p>{canEdit ? 'Adicione o primeiro PDF deste estudo. Os metadados, notas e citações ficam separados por estudo.' : 'Este estudo ainda não tem PDFs. Você tem acesso somente para leitura.'}</p>
+                  {canEdit && <button className={styles.emptyBtn} onClick={() => openUpload()}>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                     </svg>
                     Adicionar PDFs
-                  </button>
+                  </button>}
                 </div>
               ) : (
                 <>
@@ -462,6 +462,7 @@ export default function App({ user, onOpenAccount }) {
                       <PaperCard
                         key={p.id}
                         paper={p}
+                        readOnly={!canEdit}
                         onClick={() => handleSelect(p.id)}
                         onToggleCited={() => updateMeta(p.id, { cited: !p.meta.cited })}
                         onEdit={() => handleSelect(p.id)}
@@ -469,12 +470,12 @@ export default function App({ user, onOpenAccount }) {
                       />
                     ))}
                     {/* Add card */}
-                    <button className={styles.addCard} onClick={() => openUpload()}>
+                    {canEdit && <button className={styles.addCard} onClick={() => openUpload()}>
                       <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
                         <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
                       </svg>
                       <span>Adicionar PDFs</span>
-                    </button>
+                    </button>}
                   </div>
                 </>
               )}
@@ -482,13 +483,14 @@ export default function App({ user, onOpenAccount }) {
           )}
 
           {/* EDITOR VIEW */}
-          {view === 'editor' && selectedPaper && (
+          {!loading && !loadError && !missingResource && view === 'editor' && selectedPaper && (
             <div className={styles.editorView}>
               <PaperViewer
                 key={selectedPaper.id}
                 srcUrl={srcUrl}
                 downloadUrl={downloadUrl}
                 fileName={selectedPaper.fileName}
+                readOnly={!canEdit}
                 highlights={selectedPaper.meta.highlights || []}
                 onHighlightsChange={highlights => handleUpdateMeta({ highlights })}
                 focusHighlightRequest={highlightFocus}
@@ -497,29 +499,39 @@ export default function App({ user, onOpenAccount }) {
                 <MetadataPanel
                   key={selectedPaper.id}
                   paper={selectedPaper}
+                  readOnly={!canEdit}
                   onUpdate={handleUpdateMeta}
-                  onSelectHighlight={highlight => setHighlightFocus({ id: highlight.id, requestedAt: Date.now() })}
+                  activeTab={route.tab}
+                  selectedAnnotationId={route.annotationId}
+                  onTabChange={tab => navigate({ studyId: activeStudyId, paperId: selectedId, tab })}
+                  onSelectHighlight={highlight => navigate({ studyId: activeStudyId, paperId: selectedId, annotationId: highlight.id, tab: 'highlights' })}
                 />
               </div>
             </div>
           )}
 
-          {/* No paper selected in editor */}
-          {view === 'editor' && !selectedPaper && (
-            <div className={styles.emptyState}>
-              <div className={styles.emptyIcon}>&#128196;</div>
-              <h2>No paper selected</h2>
-              <p>Select a paper from the sidebar or add a new one.</p>
-              <button className={styles.emptyBtn} onClick={() => openUpload()}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-                Adicionar PDFs
-              </button>
+          {(loading || loadError || missingResource) && (
+            <div className={styles.emptyState} role={loadError || missingResource ? 'alert' : 'status'}>
+              <h2>{loading ? 'Carregando biblioteca…' : loadError ? 'Não foi possível carregar a biblioteca' : selectedId ? 'Paper indisponível' : 'Estudo indisponível'}</h2>
+              {!loading && <p>{loadError || 'Este link aponta para um item excluído ou ao qual sua conta não tem acesso.'}</p>}
+              {!loading && <button className={styles.emptyBtn} onClick={loadError ? () => window.location.reload() : handleHome}>{loadError ? 'Tentar novamente' : 'Voltar aos estudos'}</button>}
             </div>
           )}
         </div>
       </main>
+
+      {sharingStudy && <SharingPanel study={sharingStudy} onClose={() => setSharingStudy(null)} />}
+      {invitationToken && <InvitationPanel token={invitationToken} user={user} onClose={() => {
+        setInvitationToken(null)
+        const url = new URL(window.location.href)
+        url.searchParams.delete('invite')
+        window.history.replaceState(null, '', url)
+        window.dispatchEvent(new Event('paper-vault:navigate'))
+      }} onAccepted={async studyId => {
+        await refreshLibrary()
+        setInvitationToken(null)
+        navigate({ studyId })
+      }} />}
 
       {/* Study form modal */}
       {(showCreateStudy || editingStudy) && (

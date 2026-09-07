@@ -45,6 +45,21 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS sessions_expires_at_idx ON sessions(expires_at);
 `)
 
+const userColumns = db.prepare('PRAGMA table_info(users)').all()
+if (!userColumns.some(column => column.name === 'email_verified_at')) {
+  db.exec('ALTER TABLE users ADD COLUMN email_verified_at TEXT')
+}
+db.exec(`
+  CREATE TABLE IF NOT EXISTS email_verification_tokens (
+    token_hash TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    email TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS verification_user_idx ON email_verification_tokens(user_id);
+`)
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS password_reset_tokens (
     token_hash TEXT PRIMARY KEY,
@@ -84,6 +99,29 @@ if (!studyColumns.some(col => col.name === 'owner_id')) {
   db.exec('ALTER TABLE studies ADD COLUMN owner_id TEXT')
 }
 db.exec('CREATE INDEX IF NOT EXISTS studies_owner_id_idx ON studies(owner_id)')
+
+db.exec(`
+  CREATE TABLE IF NOT EXISTS study_members (
+    study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (study_id, user_id)
+  );
+  CREATE INDEX IF NOT EXISTS study_members_user_idx ON study_members(user_id);
+  CREATE TABLE IF NOT EXISTS study_invitations (
+    id TEXT PRIMARY KEY,
+    study_id TEXT NOT NULL REFERENCES studies(id) ON DELETE CASCADE,
+    email TEXT NOT NULL COLLATE NOCASE,
+    role TEXT NOT NULL CHECK (role IN ('viewer', 'editor')),
+    token_hash TEXT NOT NULL UNIQUE,
+    created_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    used_at TEXT
+  );
+  CREATE INDEX IF NOT EXISTS study_invitations_study_idx ON study_invitations(study_id);
+`)
+
 
 const paperColumns = db.prepare('PRAGMA table_info(papers)').all()
 if (!paperColumns.some(col => col.name === 'study_id')) {

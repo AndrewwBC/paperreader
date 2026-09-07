@@ -121,7 +121,7 @@ test('PDF upload, delivery, compression and production browser rendering', { tim
     ws.send(JSON.stringify({ id: mid, method, params }))
   })
   const evaluate = async expression => {
-    const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })
+    const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true, userGesture: true })
     assert.ok(!result.exceptionDetails, JSON.stringify(result.exceptionDetails))
     return result.result.value
   }
@@ -132,11 +132,63 @@ test('PDF upload, delivery, compression and production browser rendering', { tim
   await send('Runtime.enable')
   ws.addEventListener('message', event => {
     const message = JSON.parse(event.data)
+    if (message.method === 'Network.loadingFailed') logs += JSON.stringify(message.params)
     if (message.method === 'Runtime.exceptionThrown') logs += JSON.stringify(message.params)
   })
   await send('Network.enable')
   const [cookieName, cookieValue] = cookie.split('=')
   await send('Network.setCookie', { name: cookieName, value: cookieValue, url: base })
+  await send('Page.navigate', { url: base })
+  await waitFor(`document.querySelector('button[title="Minha conta"]') || Array.from(document.querySelectorAll('button')).some(el => el.textContent.includes('PDF Test'))`)
+  await evaluate(`Array.from(document.querySelectorAll('button')).find(el => el.textContent.includes('PDF Test')).click()`)
+  await waitFor(`document.querySelector('dialog[open]')`)
+  await evaluate(`Array.from(document.querySelectorAll('dialog button')).find(el => el.textContent === 'Backup').click()`)
+  await waitFor(`document.body.innerText.includes('Baixar backup completo')`)
+  const downloadPath = join(dir, 'downloads')
+  await send('Browser.setDownloadBehavior', { behavior: 'allow', downloadPath, eventsEnabled: true })
+  await evaluate(`document.querySelector('dialog a[download]').click()`)
+  let downloadedBackup
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const files = await readdir(downloadPath).catch(() => [])
+    const name = files.find(name => name.endsWith('.json'))
+    if (name) { downloadedBackup = JSON.parse(await readFile(join(downloadPath, name), 'utf8')); break }
+    await pause(100)
+  }
+  assert.ok(downloadedBackup, 'Backup was actually saved by Chrome from inside the modal: ' + await evaluate('document.body.innerText') + logs)
+  assert.equal(downloadedBackup.papers.length, papers.length)
+  assert.ok(downloadedBackup.papers.every(paper => paper.pdf && paper.sha256))
+  t.diagnostic('Browser saved a downloadable backup containing all PDFs')
+  const backupFile = (await readdir(downloadPath)).find(name => name.endsWith('.json'))
+  const { root: backupRoot } = await send('DOM.getDocument')
+  const { nodeId: backupInput } = await send('DOM.querySelector', { nodeId: backupRoot.nodeId, selector: 'dialog input[type="file"]' })
+  await send('DOM.setFileInputFiles', { nodeId: backupInput, files: [join(downloadPath, backupFile)] })
+  await evaluate(`Array.from(document.querySelectorAll('dialog button')).find(el => el.textContent === 'Restaurar como novos estudos').click()`)
+  await waitFor(`document.body.innerText.includes('PDFs restaurados')`)
+  const restoredStudies = await (await request('/api/studies')).json()
+  assert.equal(restoredStudies.length, 2)
+  for (const copy of restoredStudies.filter(s => s.id !== study.id)) {
+    assert.equal((await request('/api/studies/' + copy.id, { method: 'DELETE' })).status, 200)
+  }
+  t.diagnostic('Browser restored the downloaded backup without overwriting its source')
+  for (const width of [390, 1280]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 900, deviceScaleFactor: 1, mobile: width < 500 })
+    assert.ok(await evaluate(`document.querySelector('dialog').getBoundingClientRect().right <= window.innerWidth`), 'Account fits viewport')
+    await pause(250)
+    const screenshot = await send('Page.captureScreenshot')
+    await writeFile(`/tmp/paper-vault-backup-${width}.png`, Buffer.from(screenshot.data, 'base64'))
+  }
+  await evaluate(`document.querySelector('button[aria-label="Fechar"]').click()`)
+  await send('Network.clearBrowserCookies')
+  await send('Page.navigate', { url: base })
+  await waitFor(`document.body.innerText.includes('Esqueci minha senha')`)
+  await evaluate(`Array.from(document.querySelectorAll('button')).find(el => el.textContent === 'Esqueci minha senha').click()`)
+  await waitFor(`document.querySelector('#recovery-title')`)
+  assert.equal(await evaluate(`document.querySelector('#recovery-title').textContent`), 'Recupere seu acesso')
+  await send('Page.navigate', { url: base + '/#reset=invalid-test-token' })
+  await send('Page.reload')
+  await waitFor(`document.body.innerText.includes('Crie uma nova senha')`)
+  await send('Network.setCookie', { name: cookieName, value: cookieValue, url: base })
+  t.diagnostic('Account backup fits mobile and desktop; recovery and reset screens open')
   for (const paper of papers) {
     await send('Page.navigate', { url: base })
     await waitFor(`Array.from(document.querySelectorAll('h2')).some(el => el.textContent === 'PDF Regression')`)

@@ -1,3 +1,4 @@
+import { navigationHref, followLink } from '../hooks/useNavigation'
 import styles from './PaperCard.module.css'
 
 const LINK_ICONS = {
@@ -16,7 +17,7 @@ function GithubIcon() {
   )
 }
 
-export function PaperCard({ paper, onClick, onToggleCited, onEdit, onDelete }) {
+export function PaperCard({ paper, onClick, onToggleCited, onEdit, onDelete, readOnly = false }) {
   const { meta, fileName, addedAt } = paper
   const title = (meta.title || fileName).split(/\s+/).filter(Boolean).slice(0, 5).join(" ")
   const date = new Date(addedAt).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' })
@@ -27,6 +28,7 @@ export function PaperCard({ paper, onClick, onToggleCited, onEdit, onDelete }) {
       <button
         className={`${styles.citedBtn} ${meta.cited ? styles.citedBtnActive : ''}`}
         onClick={e => { e.stopPropagation(); onToggleCited() }}
+        disabled={readOnly}
         title={meta.cited ? 'Remover citação' : 'Marcar como citado'}
       >
         <svg width="12" height="12" viewBox="0 0 24 24" fill={meta.cited ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -53,7 +55,7 @@ export function PaperCard({ paper, onClick, onToggleCited, onEdit, onDelete }) {
       </div>
 
       {/* Title */}
-      <h2 className={styles.title} title={meta.title || fileName}>{title}</h2>
+      <h2 className={styles.title} title={meta.title || fileName}><a href={navigationHref({ studyId: paper.studyId, paperId: paper.id })} onClick={event => { event.stopPropagation(); followLink(event, onClick) }} style={{ color: 'inherit', textDecoration: 'none' }}>{title}</a></h2>
 
       {/* Authors */}
       {meta.authors && (
@@ -126,7 +128,7 @@ export function PaperCard({ paper, onClick, onToggleCited, onEdit, onDelete }) {
             </a>
           ))}
         </div>
-        <div className={styles.paperActions}>
+        {!readOnly && <div className={styles.paperActions}>
           <button
             className={styles.paperAction}
             onClick={e => { e.stopPropagation(); onEdit() }}
@@ -145,7 +147,7 @@ export function PaperCard({ paper, onClick, onToggleCited, onEdit, onDelete }) {
               <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/>
             </svg>
           </button>
-        </div>
+        </div>}
         <span className={styles.openBtn}>Abrir &rarr;</span>
       </div>
     </article>

@@ -44,7 +44,7 @@ export function PaperViewer({
   useEffect(() => {
     if (focusHighlightRequest?.id == null) return
 
-    const highlight = highlightsRef.current.find(item => item.id === focusHighlightRequest.id)
+    const highlight = highlightsRef.current.find(item => String(item.id) === String(focusHighlightRequest.id))
     const firstRect = highlight?.rects?.[0]
     const container = containerRef.current
     const scroll = scrollRef.current
@@ -70,7 +70,7 @@ export function PaperViewer({
       top: Math.max(0, target),
       behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
     })
-  }, [focusHighlightRequest])
+  }, [focusHighlightRequest, ready])
 
   const removeHighlight = useCallback(id => {
     const next = highlightsRef.current.filter(highlight => highlight.id !== id)

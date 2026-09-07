@@ -1,3 +1,4 @@
+import { navigationHref, followLink } from '../hooks/useNavigation'
 import { useState } from 'react'
 import styles from './MetadataPanel.module.css'
 
@@ -114,15 +115,17 @@ function generateBibtex(meta, fileName) {
   return lines.join('\n')
 }
 
-export function MetadataPanel({ paper, onUpdate, onSelectHighlight }) {
+export function MetadataPanel({ paper, onUpdate, onSelectHighlight, activeTab = 'reading', onTabChange, selectedAnnotationId }) {
   const meta = paper.meta
   const highlights = meta.highlights || []
   const set = (field, val) => onUpdate({ [field]: val })
-  const [tab, setTab] = useState('reading')
-  const [jsonText, setJsonText] = useState('')
+  const tab = activeTab
+  const setTab = onTabChange
+  const [jsonText, setJsonText] = useState(() => JSON.stringify(meta, null, 2))
   const [jsonError, setJsonError] = useState(null)
   const [highlightIndex, setHighlightIndex] = useState(0)
-  const activeHighlightIndex = Math.min(highlightIndex, Math.max(0, highlights.length - 1))
+  const linkedHighlightIndex = highlights.findIndex(item => String(item.id) === selectedAnnotationId)
+  const activeHighlightIndex = linkedHighlightIndex >= 0 ? linkedHighlightIndex : Math.min(highlightIndex, Math.max(0, highlights.length - 1))
   const activeHighlight = highlights[activeHighlightIndex]
 
 
@@ -189,8 +192,8 @@ export function MetadataPanel({ paper, onUpdate, onSelectHighlight }) {
   }
 
   function openHighlights() {
-    setTab('highlights')
     if (activeHighlight) onSelectHighlight?.(activeHighlight)
+    else setTab('highlights')
   }
 
   function removeHighlight(id) {
@@ -304,6 +307,7 @@ export function MetadataPanel({ paper, onUpdate, onSelectHighlight }) {
 
       {tab === "highlights" && (
         <div className={styles.highlightsView}>
+          {selectedAnnotationId && linkedHighlightIndex < 0 && <p role="status">A anotação deste link foi removida ou não está disponível.</p>}
           <header className={styles.highlightsViewHeader}>
             <div>
               <h2>Trechos marcados</h2>
@@ -340,7 +344,12 @@ export function MetadataPanel({ paper, onUpdate, onSelectHighlight }) {
               <div className={styles.highlightItemHeader}>
                 <span className={styles.highlightLocation}>
                   <i className={styles.highlightSwatch} data-color={activeHighlight.color || "yellow"} />
-                  Trecho {String(activeHighlightIndex + 1).padStart(2, '0')}
+                  <a
+                    href={navigationHref({ studyId: paper.studyId, paperId: paper.id, annotationId: activeHighlight.id, tab: 'highlights' })}
+                    onClick={event => followLink(event, () => onSelectHighlight?.(activeHighlight))}
+                    title="Link permanente deste trecho"
+                    style={{ color: 'inherit' }}
+                  >Trecho {String(activeHighlightIndex + 1).padStart(2, '0')}</a>
                   {activeHighlight.rects?.[0]?.page ? ` · Página ${activeHighlight.rects[0].page}` : ''}
                 </span>
                 <div className={styles.highlightActions}>

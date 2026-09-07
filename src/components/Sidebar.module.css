@@ -69,7 +69,7 @@
 
 .addBtn:hover {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 .addBtn:disabled {
@@ -144,7 +144,7 @@
 .studyForm button {
   background: var(--accent);
   border: none;
-  color: white;
+  color: var(--on-accent);
   border-radius: 6px;
   padding: 0 10px;
   font-size: 12px;
@@ -206,7 +206,7 @@
 
 .studySelected .studyCount {
   background: var(--accent);
-  color: white;
+  color: var(--on-accent);
 }
 
 .searchBox {
@@ -404,3 +404,7 @@
   color: var(--red);
   background: rgba(248, 113, 113, 0.1);
 }
+
+.addBtn, .smallIconBtn { min-width: 36px; min-height: 36px; border-radius: 8px; }
+.studyItem { min-height: 44px; }
+.studyForm button { min-height: 40px; }

@@ -1,7 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { EmailVerification, EmailStatus } from './EmailVerification'
+import { BackupPanel } from './BackupPanel'
+import { PasswordRecovery } from './PasswordRecovery'
 import styles from './AuthGate.module.css'
 
 function AccountPanel({ user, onClose, onUserUpdated, onLogout, onDeleted }) {
+  const dialogRef = useRef(null)
+  useEffect(() => {
+    const previous = document.activeElement
+    dialogRef.current.showModal()
+    return () => previous?.focus()
+  }, [])
   const [tab, setTab] = useState('profile')
   const [name, setName] = useState(user.name)
   const [email, setEmail] = useState(user.email)
@@ -60,7 +69,7 @@ function AccountPanel({ user, onClose, onUserUpdated, onLogout, onDeleted }) {
   }
 
   return (
-    <div className={styles.accountOverlay} onMouseDown={event => event.target === event.currentTarget && onClose()}>
+    <dialog ref={dialogRef} className={styles.accountDialog} onCancel={onClose} onClick={event => event.target === event.currentTarget && onClose()}>
       <section className={styles.accountPanel} role="dialog" aria-modal="true" aria-labelledby="account-title">
         <header className={styles.accountHeader}>
           <div className={styles.accountIdentity}>
@@ -92,10 +101,12 @@ function AccountPanel({ user, onClose, onUserUpdated, onLogout, onDeleted }) {
           >
             Conta
           </button>
+          <button type="button" className={tab === 'backup' ? styles.accountTabActive : ''} onClick={() => { setTab('backup'); setMessage(null) }}>Backup</button>
         </nav>
 
         {tab === 'profile' ? (
           <form className={styles.accountBody} onSubmit={saveProfile}>
+            <EmailStatus key={user.email} user={user} />
             <div className={styles.sectionHeading}>
               <span>Dados pessoais</span>
               <h3>Informações de acesso</h3>
@@ -141,7 +152,7 @@ function AccountPanel({ user, onClose, onUserUpdated, onLogout, onDeleted }) {
               </button>
             </footer>
           </form>
-        ) : (
+        ) : tab === 'backup' ? <BackupPanel /> : (
           <div className={styles.accountBody}>
             <section className={styles.accountSection}>
               <div>
@@ -178,14 +189,16 @@ function AccountPanel({ user, onClose, onUserUpdated, onLogout, onDeleted }) {
           </div>
         )}
       </section>
-    </div>
+    </dialog>
   )
 }
 
 export function AuthGate({ children }) {
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [mode, setMode] = useState('login')
+  const [verificationToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('verify') || '')
+  const [resetToken, setResetToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('reset') || '')
+  const [mode, setMode] = useState(() => window.location.hash.startsWith('#verify=') ? 'verification' : window.location.hash.startsWith('#reset=') ? 'recovery' : 'login')
   const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -203,8 +216,8 @@ export function AuthGate({ children }) {
       .then(async response => {
         const data = await response.json()
         if (response.ok) {
-          setUser(data.user)
-        } else if (data.setupRequired) {
+          if (!/^#(reset|verify)=/.test(window.location.hash)) setUser(data.user)
+        } else if (data.setupRequired && !/^#(reset|verify)=/.test(window.location.hash)) {
           setMode('register')
         }
       })
@@ -238,6 +251,7 @@ export function AuthGate({ children }) {
       const data = await response.json()
       if (!response.ok) throw new Error(data.error || 'Não foi possível entrar.')
       setUser(data.user)
+      if (mode === 'register') setShowAccount(true)
       setPassword('')
     } catch (requestError) {
       setError(requestError.message)
@@ -302,7 +316,7 @@ export function AuthGate({ children }) {
         </div>
       </header>
 
-      <section className={styles.panel} aria-labelledby="auth-title">
+      {mode === 'verification' ? <EmailVerification token={verificationToken} onBack={() => { window.location.hash = ''; window.location.reload() }} /> : mode === 'recovery' ? <PasswordRecovery token={resetToken} onBack={() => { window.history.replaceState(null, '', window.location.pathname + window.location.search); setResetToken(''); selectMode('login') }} /> : <section className={styles.panel} aria-labelledby="auth-title">
         <div className={styles.modeSwitch} aria-label="Acesso">
           <button
             type="button"
@@ -370,8 +384,9 @@ export function AuthGate({ children }) {
           <button className={styles.submit} type="submit" disabled={busy}>
             {busy ? 'Aguarde...' : mode === 'register' ? 'Criar conta' : 'Entrar'}
           </button>
+          {mode === 'login' && <button className={styles.textAction} type="button" disabled={busy} onClick={() => selectMode('recovery')}>Esqueci minha senha</button>}
         </form>
-      </section>
+      </section>}
     </main>
   )
 }

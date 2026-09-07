@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "concurrently \"node server/index.js\" \"vite\"",
-    "server": "node server/index.js",
+    "dev": "concurrently \"node --env-file=.env server/index.js\" \"vite\"",
+    "server": "node --env-file=.env server/index.js",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
@@ -15,6 +15,7 @@
   "dependencies": {
     "express": "^5.2.1",
     "multer": "^2.1.1",
+    "nodemailer": "^10.0.1",
     "pdfjs-dist": "^5.6.205",
     "react": "^19.2.4",
     "react-dom": "^19.2.4"

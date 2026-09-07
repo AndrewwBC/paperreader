@@ -37,17 +37,41 @@ export function usePapers() {
   const [studies, setStudies] = useState([])
   const [papers, setPapers] = useState([])
 
-  useEffect(() => {
-    fetch('/api/studies', { credentials: 'include' })
-      .then(r => r.json())
-      .then(data => setStudies(data))
-      .catch(console.error)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(null)
 
-    fetch('/api/papers', { credentials: 'include' })
-      .then(r => r.json())
-      .then(data => setPapers(data))
-      .catch(console.error)
+  useEffect(() => {
+    const controller = new AbortController()
+    async function load() {
+      try {
+        const [loadedStudies, loadedPapers] = await Promise.all(['/api/studies', '/api/papers'].map(async url => {
+          const response = await fetch(url, { credentials: 'include', signal: controller.signal })
+          if (!response.ok) throw new Error('Verifique sua conexão e tente novamente.')
+          const data = await response.json()
+          if (!Array.isArray(data)) throw new Error('Resposta inválida ao carregar sua biblioteca.')
+          return data
+        }))
+        setStudies(loadedStudies)
+        setPapers(loadedPapers)
+      } catch (error) {
+        if (!controller.signal.aborted) setLoadError(error.message)
+      } finally {
+        if (!controller.signal.aborted) setLoading(false)
+      }
+    }
+    void load()
+    return () => controller.abort()
   }, [])
+
+  async function refreshLibrary() {
+    const data = await Promise.all(['/api/studies', '/api/papers'].map(async url => {
+      const response = await fetch(url, { credentials: 'include' })
+      if (!response.ok) throw new Error('Não foi possível atualizar a biblioteca. Tente novamente.')
+      return response.json()
+    }))
+    setStudies(data[0])
+    setPapers(data[1])
+  }
 
   async function refreshStudies() {
     const data = await fetch('/api/studies', { credentials: 'include' }).then(r => r.json())
@@ -247,5 +271,5 @@ export function usePapers() {
     return migrated
   }
 
-  return { studies, papers, createStudy, updateStudy, deleteStudy, addPaper, addPapers, updatePaper, updateMeta, deletePaper, getBlobUrl, migrateFromLocalStorage }
+  return { studies, papers, loading, loadError, refreshLibrary, createStudy, updateStudy, deleteStudy, addPaper, addPapers, updatePaper, updateMeta, deletePaper, getBlobUrl, migrateFromLocalStorage }
 }
