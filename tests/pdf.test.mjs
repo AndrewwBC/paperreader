@@ -91,6 +91,12 @@ test('PDF upload, delivery, compression and production browser rendering', { tim
     t.diagnostic(`${name}: ${bytes.length} -> ${data.length} bytes`)
   }
   if (!process.env.PDF_BROWSER_TEST) return
+  for (const asset of ['standard_fonts/LiberationSans-Regular.ttf', 'cmaps/Adobe-Japan1-UCS2.bcmap', 'wasm/openjpeg.wasm']) {
+    const response = await request(`/${asset}`)
+    assert.equal(response.status, 200)
+    assert.ok(!response.headers.get('content-type')?.includes('text/html'), `${asset} must not return the SPA fallback`)
+    assert.deepEqual(Buffer.from(await response.arrayBuffer()), await readFile(join('node_modules/pdfjs-dist', asset)))
+  }
   const chrome = spawn(process.env.CHROME_BIN || 'google-chrome', ['--headless=new', '--no-sandbox', '--disable-gpu', '--remote-debugging-port=0', `--user-data-dir=${join(dir, 'chrome')}`, 'about:blank'], { stdio: ['ignore', 'ignore', 'pipe'] })
   t.after(async () => { chrome.kill(); if (chrome.exitCode === null && chrome.signalCode === null) await once(chrome, 'exit') })
   let port
