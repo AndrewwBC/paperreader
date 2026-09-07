@@ -95,6 +95,9 @@ export function usePapers() {
   }
 
   async function uploadPaper(file, studyId) {
+    if (file.size > 20 * 1024 * 1024) {
+      throw new Error(`"${file.name}" excede o limite de 20 MB.`)
+    }
     const extracted = await extractPdfMeta(file)
     const title = sentenceCaseTitle(extracted.title)
     const meta = { ...defaultMeta(), title, year: extracted.year }

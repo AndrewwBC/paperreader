@@ -1,7 +1,4 @@
-import * as pdfjsLib from 'pdfjs-dist'
-import workerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url'
-
-pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
+import { getDocument } from './pdfjs'
 
 /**
  * Given a PDF File, returns { title, year } extracted from the first page.
@@ -9,9 +6,11 @@ pdfjsLib.GlobalWorkerOptions.workerSrc = workerUrl
  * largest font on page 1; the year is a 4-digit number in [1990..2030].
  */
 export async function extractPdfMeta(file) {
+  let loadingTask
   try {
     const arrayBuffer = await file.arrayBuffer()
-    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise
+    loadingTask = getDocument({ data: arrayBuffer })
+    const pdf = await loadingTask.promise
 
     // First try the PDF document info
     const info = await pdf.getMetadata().catch(() => null)
@@ -37,7 +36,7 @@ export async function extractPdfMeta(file) {
         items.sort((a, b) => a.x - b.x)
         return {
           y,
-          text: items.map(i => i.str).join(' ').replace(/\s+/g, ' ').trim(),
+          text: items.map(i => i.text).join(' ').replace(/\s+/g, ' ').trim(),
           fontSize: Math.max(...items.map(i => i.fontSize)),
         }
       })
@@ -104,5 +103,7 @@ export async function extractPdfMeta(file) {
   } catch (err) {
     console.warn('PDF meta extraction failed:', err)
     return { title: '', year: '' }
+  } finally {
+    await loadingTask?.destroy()
   }
 }

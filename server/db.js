@@ -59,6 +59,15 @@ db.exec(`
 `)
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS studies (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    owner_id TEXT
+  )
+`)
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS papers (
     id TEXT PRIMARY KEY,
     study_id TEXT,

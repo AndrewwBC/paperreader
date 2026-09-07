@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { spawnSync } from 'node:child_process'
+import { compressPdf, hasPdfHeader } from './pdf.js'
 import { fileURLToPath } from 'url'
 import { dirname, join } from 'path'
 import express from 'express'
@@ -366,35 +366,24 @@ app.get('/api/papers/:id', (req, res) => {
 
 // Add a new paper
 const COMPRESS_THRESHOLD = 3 * 1024 * 1024
-const COMPRESS_TIMEOUT_MS = 120000
-
-// Re-compress large PDFs with Ghostscript (downsamples images). Returns a
-// smaller buffer or null when gs is unavailable, fails, or gains < 10%.
-function compressPdf(buffer) {
-  try {
-    const result = spawnSync('gs', [
-      '-sDEVICE=pdfwrite',
-      '-dCompatibilityLevel=1.5',
-      '-dPDFSETTINGS=/ebook',
-      '-dDetectDuplicateImages=true',
-      '-dNOPAUSE', '-dQUIET', '-dBATCH',
-      '-sOutputFile=-', '-',
-    ], { input: buffer, timeout: COMPRESS_TIMEOUT_MS, maxBuffer: 1024 * 1024 * 1024 })
-
-    const out = result.stdout
-    const looksLikePdf = out && out.length > 1024 && out[0] === 0x25 && out[1] === 0x50 // "%P"
-    if (result.status !== 0 || !looksLikePdf) return null
-    if (out.length >= buffer.length * 0.9) return null // not worth it
-    return out
-  } catch {
-    return null
-  }
-}
-
-app.post('/api/papers', upload.single('pdf'), (req, res) => {
+app.post('/api/papers', upload.single('pdf'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No PDF uploaded' })
-  const id = Date.now().toString()
-  const meta = req.body.meta ? JSON.parse(req.body.meta) : {}
+  if (!hasPdfHeader(req.file.buffer)) return res.status(400).json({ error: 'Arquivo PDF inválido.' })
+  const id = randomUUID()
+  // Multipart filenames from browsers arrive decoded as Latin-1 by Busboy.
+  let fileName = req.file.originalname
+  if ([...fileName].every(char => char.codePointAt(0) <= 255)) {
+    try { fileName = new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(fileName, 'latin1')) } catch { /* Keep legacy Latin-1 names. */ }
+  }
+  let meta
+  try {
+    meta = req.body.meta ? JSON.parse(req.body.meta) : {}
+    if (!meta || typeof meta !== 'object' || Array.isArray(meta)) throw new Error('Invalid metadata')
+  } catch {
+    return res.status(400).json({ error: 'Metadados inválidos.' })
+  }
+  delete meta.compressed
+  delete meta.originalSize
   const studyId = String(req.body.studyId || '')
   const addedAt = new Date().toISOString()
 
@@ -405,7 +394,7 @@ app.post('/api/papers', upload.single('pdf'), (req, res) => {
 
   let pdfBuffer = req.file.buffer
   if (pdfBuffer.length > COMPRESS_THRESHOLD) {
-    const optimized = compressPdf(pdfBuffer)
+    const optimized = await compressPdf(pdfBuffer)
     if (optimized) {
       meta.compressed = true
       meta.originalSize = req.file.size
@@ -415,9 +404,9 @@ app.post('/api/papers', upload.single('pdf'), (req, res) => {
 
   db.prepare(
     'INSERT INTO papers (id, study_id, file_name, added_at, pdf_data, meta) VALUES (?, ?, ?, ?, ?, ?)'
-  ).run(id, studyId, req.file.originalname, addedAt, pdfBuffer, JSON.stringify(meta))
+  ).run(id, studyId, fileName, addedAt, pdfBuffer, JSON.stringify(meta))
 
-  res.json({ id, studyId, fileName: req.file.originalname, addedAt, meta, blobUrl: null })
+  res.json({ id, studyId, fileName, addedAt, meta, blobUrl: null })
 })
 
 // Stream PDF bytes with range request support
@@ -432,30 +421,30 @@ app.get('/api/papers/:id/pdf', (req, res) => {
 
   const pdfData = Buffer.from(row.pdf_data)
   const fileSize = pdfData.length
-  const range = req.headers.range
   const etag = `W/"${req.params.id}-${fileSize}"`
 
   res.set('ETag', etag)
   if (req.headers['if-none-match'] === etag) return res.status(304).end()
   res.set('Cache-Control', 'private, max-age=86400')
-  res.set('Content-Type', 'application/pdf')
-  res.set('Content-Disposition', `${req.query.dl ? 'attachment' : 'inline'}; filename="${row.file_name}"`)
+  res.attachment(row.file_name)
+  res.type('application/pdf')
+  if (!req.query.dl) res.set('Content-Disposition', res.get('Content-Disposition').replace(/^attachment/, 'inline'))
   res.set('Accept-Ranges', 'bytes')
 
-  if (range) {
-    const parts = range.replace(/bytes=/, '').split('-')
-    const start = parseInt(parts[0], 10)
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1
-    const chunkSize = end - start + 1
-
-    res.status(206)
-    res.set('Content-Range', `bytes ${start}-${end}/${fileSize}`)
-    res.set('Content-Length', chunkSize)
-    res.send(pdfData.slice(start, end + 1))
-  } else {
-    res.set('Content-Length', fileSize)
-    res.send(pdfData)
+  const ranges = !req.headers['if-range'] && /^bytes=/.test(req.headers.range || '')
+    ? req.range(fileSize)
+    : undefined
+  if (ranges === -1) {
+    return res.status(416).set('Content-Range', `bytes */${fileSize}`).end()
   }
+  // Ignore malformed/multipart ranges and If-Range without a strong validator.
+  if (Array.isArray(ranges) && ranges.type === 'bytes' && ranges.length === 1) {
+    const { start, end } = ranges[0]
+    return res.status(206)
+      .set('Content-Range', `bytes ${start}-${end}/${fileSize}`)
+      .send(pdfData.subarray(start, end + 1))
+  }
+  res.send(pdfData)
 })
 
 
@@ -523,7 +512,7 @@ app.delete('/api/papers/:id', (req, res) => {
 })
 
 // Upload error handler — returns JSON instead of Express's default HTML page
-app.use((error, req, res, next) => {
+app.use((error, req, res, _next) => {
   if (error?.code === 'LIMIT_FILE_SIZE') {
     return res.status(413).json({ error: 'O PDF excede o limite de 20 MB.' })
   }

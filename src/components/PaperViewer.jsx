@@ -1,18 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react"
-import { getDocument, GlobalWorkerOptions, TextLayer } from "pdfjs-dist"
+import { getDocument, TextLayer } from "../utils/pdfjs"
 import styles from "./PaperViewer.module.css"
-
-GlobalWorkerOptions.workerSrc = new URL(
-  "pdfjs-dist/build/pdf.worker.min.mjs",
-  import.meta.url
-).href
-
-GlobalWorkerOptions.standardFontDataUrl = new URL(
-  "/standard_fonts/",
-  import.meta.url
-).href
-GlobalWorkerOptions.cMapUrl = new URL("/cmaps/", import.meta.url).href
-GlobalWorkerOptions.cMapPacked = true
 
 const MIN_SCALE = 0.5
 const MAX_SCALE = 3.0
@@ -158,6 +146,8 @@ export function PaperViewer({
   }, [removeHighlight])
 
   const clearPage = useCallback(div => {
+    div.pdfRenderTask?.cancel()
+    div.pdfTextLayer?.cancel()
     div.querySelectorAll("canvas").forEach(canvas => canvas.remove())
     div.querySelectorAll(`.${styles.textLayer}`).forEach(layer => layer.remove())
     div.dataset.renderedScale = ""
@@ -176,7 +166,7 @@ export function PaperViewer({
     const div = containerRef.current?.querySelector(`[data-page-number="${pageNumber}"]`)
     if (!meta || !div) return
 
-    const dpr = window.devicePixelRatio || 1
+    const dpr = Math.min(window.devicePixelRatio || 1, 2, Math.sqrt(16_000_000 / (meta.base.width * meta.base.height * targetScale ** 2)))
     const viewport = meta.page.getViewport({ scale: targetScale })
     const scaledVP = meta.page.getViewport({ scale: targetScale * dpr })
 
@@ -193,14 +183,19 @@ export function PaperViewer({
     div.appendChild(canvas)
     div.appendChild(textDiv)
 
-    await meta.page.render({ canvasContext: canvas.getContext("2d"), viewport: scaledVP }).promise
+    const renderTask = meta.page.render({ canvasContext: canvas.getContext("2d"), viewport: scaledVP })
+    div.pdfRenderTask = renderTask
+    await renderTask.promise
+    if (!canvas.isConnected) return
 
     const textLayer = new TextLayer({
       textContentSource: await meta.page.getTextContent(),
       container: textDiv,
       viewport,
     })
+    div.pdfTextLayer = textLayer
     await textLayer.render()
+    if (!canvas.isConnected) return
 
     div.dataset.renderedScale = String(targetScale)
   }, [clearPage])
@@ -216,8 +211,14 @@ export function PaperViewer({
         const div = containerRef.current?.querySelector(`[data-page-number="${pageNumber}"]`)
         if (!div || div.dataset.visible !== "1") continue
         if (div.dataset.renderedScale === String(scaleRef.current)) continue
-        await renderPage(pageNumber, scaleRef.current)
-        renderHighlightOverlays()
+        try {
+          await renderPage(pageNumber, scaleRef.current)
+          renderHighlightOverlays()
+        } catch (error) {
+          if (!disposedRef.current && div.isConnected && error?.name !== "RenderingCancelledException") {
+            setLoadError(error?.message || "Falha ao renderizar a página.")
+          }
+        }
       }
     } finally {
       renderingRef.current = false
@@ -250,7 +251,7 @@ export function PaperViewer({
     observerRef.current = io
   }, [enqueueRender, clearPage, pumpQueue])
 
-  const buildPages = useCallback(async (pdf, targetScale) => {
+  const buildPages = useCallback(async (pdf, targetScale, isCancelled) => {
     const container = containerRef.current
     if (!container) return
     container.innerHTML = ""
@@ -258,6 +259,7 @@ export function PaperViewer({
 
     for (let n = 1; n <= pdf.numPages; n++) {
       const page = await pdf.getPage(n)
+      if (isCancelled()) return
       const base = page.getViewport({ scale: 1 })
 
       const pageDiv = document.createElement("div")
@@ -288,21 +290,20 @@ export function PaperViewer({
     if (!srcUrl) return
 
     let cancelled = false
-    if (containerRef.current) containerRef.current.innerHTML = ""
+    const container = containerRef.current
+    if (container) container.innerHTML = ""
     observerRef.current?.disconnect()
     renderQueueRef.current = []
     pageMetaRef.current = new Map()
 
-    getDocument({
+    const loadingTask = getDocument({
       url: srcUrl,
       rangeChunkSize: 262144,
-      cMapUrl: new URL("pdfjs-dist/cmaps/", import.meta.url).href,
-      cMapPacked: true,
-    }).promise.then(async pdf => {
+    })
+    loadingTask.promise.then(async pdf => {
       if (cancelled) { pdf.destroy(); return }
-      pdfRef.current?.destroy?.()
       pdfRef.current = pdf
-      await buildPages(pdf, scaleRef.current)
+      await buildPages(pdf, scaleRef.current, () => cancelled)
       if (cancelled) return
       setReady(true)
     }).catch(error => {
@@ -312,10 +313,13 @@ export function PaperViewer({
     return () => {
       cancelled = true
       disposedRef.current = true
+      pdfRef.current = null
+      void loadingTask.destroy()
       observerRef.current?.disconnect()
+      container?.querySelectorAll("[data-page-number]").forEach(clearPage)
       renderQueueRef.current = []
     }
-  }, [srcUrl, buildPages])
+  }, [srcUrl, buildPages, clearPage])
 
   useEffect(() => {
     scaleRef.current = scale
@@ -459,26 +463,6 @@ export function PaperViewer({
     )
   }
 
-  if (loadError) {
-    return (
-      <div className={styles.loading} role="alert">
-        <span>Erro ao carregar o PDF: {loadError}</span>
-      </div>
-    )
-  }
-
-  if (!srcUrl || !ready) {
-    return (
-      <div className={styles.loading}>
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-          <polyline points="14 2 14 8 20 8"/>
-        </svg>
-        Carregando...
-      </div>
-    )
-  }
-
   return (
     <div className={styles.viewer}>
       <div className={styles.toolbar}>
@@ -520,6 +504,8 @@ export function PaperViewer({
         </a>
       </div>
 
+      {loadError && <div className={styles.loading} role="alert">Erro ao carregar o PDF: {loadError}</div>}
+      {!loadError && (!srcUrl || !ready) && <div role="status">Carregando...</div>}
       <div ref={scrollRef} className={styles.scroll} onScroll={() => setSelectionCandidate(null)}>
         <div
           ref={containerRef}
