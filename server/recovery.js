@@ -23,8 +23,16 @@ export function createMailTransport() {
   })
 }
 
-async function deliver(email, token, kind) {
-  const url = new URL(process.env.APP_URL || 'http://localhost:5173')
+function publicOrigin(requestOrigin) {
+  const candidate = requestOrigin || process.env.APP_URL
+  if (!candidate) throw new Error('APP_URL não configurada e a origem da requisição não foi informada')
+  const url = new URL(candidate)
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Origem inválida')
+  return url
+}
+
+async function deliver(email, token, kind, requestOrigin) {
+  const url = publicOrigin(requestOrigin)
   if (!['http:', 'https:'].includes(url.protocol)) throw new Error('APP_URL inválida')
   url.hash = `${kind === 'reset' ? 'reset' : 'verify'}=${token}`
   const subject = kind === 'reset' ? 'Redefinir senha — Paper Vault' : 'Confirme seu e-mail — Paper Vault'
@@ -40,11 +48,11 @@ async function deliver(email, token, kind) {
   await createMailTransport().sendMail({ from: process.env.SMTP_FROM, to: email, subject, text })
 }
 
-export const deliverRecovery = (email, token) => deliver(email, token, 'reset')
-export const deliverVerification = (email, token) => deliver(email, token, 'verify')
+export const deliverRecovery = (email, token, requestOrigin) => deliver(email, token, 'reset', requestOrigin)
+export const deliverVerification = (email, token, requestOrigin) => deliver(email, token, 'verify', requestOrigin)
 
-export async function deliverInvitation(email, token, studyName) {
-  const url = new URL(process.env.APP_URL || 'http://localhost:5173')
+export async function deliverInvitation(email, token, studyName, requestOrigin) {
+  const url = publicOrigin(requestOrigin)
   url.searchParams.set('invite', token)
   url.hash = ''
   const subject = 'Convite para um estudo — Paper Vault'

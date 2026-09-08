@@ -4,7 +4,7 @@ import { deliverVerification, recoveryAvailable } from './recovery.js'
 
 const digest = token => createHash('sha256').update(token).digest('hex')
 
-export async function sendVerification(user) {
+export async function sendVerification(user, requestOrigin) {
   if (!recoveryAvailable()) return false
   const token = randomBytes(32).toString('base64url')
   const now = new Date().toISOString()
@@ -12,7 +12,7 @@ export async function sendVerification(user) {
   db.prepare('INSERT INTO email_verification_tokens (token_hash, user_id, email, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
     .run(digest(token), user.id, user.email, now, new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString())
   try {
-    await deliverVerification(user.email, token)
+    await deliverVerification(user.email, token, requestOrigin)
     return true
   } catch {
     console.error('Falha ao enviar confirmação de e-mail. Verifique a configuração SMTP.')

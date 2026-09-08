@@ -55,7 +55,7 @@ export function installSharingRoutes(app) {
     db.prepare(`INSERT INTO study_invitations (id, study_id, email, role, token_hash, created_at, expires_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`).run(invitation.id, req.study.id, email, role, hash(token), invitation.created_at, invitation.expires_at)
     try {
-      await deliverInvitation(email, token, req.study.name)
+      await deliverInvitation(email, token, req.study.name, `${req.protocol}://${req.get('host')}`)
     } catch {
       db.prepare('DELETE FROM study_invitations WHERE id = ?').run(invitation.id)
       return res.status(503).json({ error: 'Não foi possível enviar o convite. Tente novamente.' })

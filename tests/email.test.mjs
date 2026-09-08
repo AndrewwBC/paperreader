@@ -46,7 +46,7 @@ test('Email confirmation: delivery, authenticated resend, expiry and email chang
   const me = async () => (await (await request('/auth/me', undefined, cookie, 'GET')).json()).user
   const [first] = await messages(1)
   assert.match(first.text, /verify@example\.test/)
-  assert.match(first.text, /http:\/\/localhost:5173\/#verify=/)
+  assert.match(first.text, /http:\/\/127\.0\.0\.1:3199\/#verify=/)
   const stored = db.prepare('SELECT * FROM email_verification_tokens WHERE token_hash = ?').get(createHash('sha256').update(first.token).digest('hex'))
   assert.ok(stored)
   assert.ok(Date.parse(stored.expires_at) - Date.parse(stored.created_at) <= 24 * 60 * 60 * 1000)

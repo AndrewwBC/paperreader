@@ -106,7 +106,7 @@ app.post('/api/auth/register', limitAuth, async (req, res) => {
   authAttempts.delete(req.ip || req.socket.remoteAddress || 'unknown')
   startSession(req, res, id)
   res.status(201).json({ user: { id, name, email, createdAt, emailVerified: false } })
-  await sendVerification({ id, email })
+  await sendVerification({ id, email }, `${req.protocol}://${req.get('host')}`)
 })
 
 app.post('/api/auth/login', limitAuth, (req, res) => {
@@ -138,7 +138,7 @@ app.post('/api/auth/forgot-password', limitAuth, async (req, res) => {
   // Delivery runs after the same response for existing and unknown accounts.
   res.json({ ok: true, message: 'Se o e-mail estiver cadastrado, você receberá um link para redefinir sua senha.' })
   if (token) {
-    try { await deliverRecovery(email, token) }
+    try { await deliverRecovery(email, token, `${req.protocol}://${req.get('host')}`) }
     catch { console.error('Falha na entrega do e-mail de recuperação. Verifique a configuração SMTP.') }
   }
 })
@@ -150,7 +150,7 @@ app.post('/api/auth/verify-email', limitAuth, (req, res) => {
 
 app.post('/api/auth/resend-verification', requireAuth, limitAuth, async (req, res) => {
   if (req.user.email_verified_at) return res.json({ ok: true, message: 'Seu e-mail já está confirmado.' })
-  const sent = await sendVerification(req.user)
+  const sent = await sendVerification(req.user, `${req.protocol}://${req.get('host')}`)
   if (!sent) return res.status(503).json({ error: 'Não foi possível enviar a confirmação. Tente novamente mais tarde.' })
   res.json({ ok: true, message: 'Enviamos um novo link de confirmação. Confira seu e-mail e a pasta de spam.' })
 })
@@ -223,7 +223,7 @@ app.put('/api/auth/me', requireAuth, async (req, res) => {
   if (emailChanged || newPassword) startSession(req, res, user.id)
   const updatedUser = db.prepare('SELECT * FROM users WHERE id = ?').get(user.id)
   res.json({ user: publicUser(updatedUser) })
-  if (emailChanged) await sendVerification(updatedUser)
+  if (emailChanged) await sendVerification(updatedUser, `${req.protocol}://${req.get('host')}`)
 })
 
 app.delete('/api/auth/me', requireAuth, (req, res) => {
