@@ -29,6 +29,14 @@ export function installSharingRoutes(app) {
     next()
   }
 
+  app.get('/api/studies/:id/shareable-users', owner, (req, res) => {
+    const users = db.prepare(`SELECT u.id, u.name, u.email FROM users u
+      WHERE u.id <> ? AND NOT EXISTS (SELECT 1 FROM study_members m WHERE m.study_id = ? AND m.user_id = u.id)
+      AND NOT EXISTS (SELECT 1 FROM study_invitations i WHERE i.study_id = ? AND i.email = u.email AND i.used_at IS NULL AND i.expires_at > ?)
+      ORDER BY u.name COLLATE NOCASE, u.email COLLATE NOCASE`).all(req.user.id, req.study.id, req.study.id, new Date().toISOString())
+    res.json({ users })
+  })
+
   app.get('/api/studies/:id/sharing', owner, (req, res) => {
     const members = db.prepare(`SELECT m.user_id AS userId, u.name, u.email, m.role, m.created_at AS createdAt
       FROM study_members m JOIN users u ON u.id = m.user_id WHERE m.study_id = ? ORDER BY m.created_at`).all(req.study.id)
@@ -45,7 +53,7 @@ export function installSharingRoutes(app) {
     if (email === req.user.email.toLowerCase()) return res.status(400).json({ error: 'Você já é proprietário deste estudo.' })
     const member = db.prepare(`SELECT 1 FROM study_members m JOIN users u ON u.id = m.user_id WHERE m.study_id = ? AND u.email = ?`).get(req.study.id, email)
     if (member) return res.status(409).json({ error: 'Esta pessoa já participa do estudo. Remova o acesso antes de enviar um novo convite.' })
-    if (!recoveryAvailable()) return res.status(503).json({ error: 'O envio de e-mail ainda não está configurado.' })
+    if (!recoveryAvailable()) return res.status(503).json({ error: 'O envio de e-mail ainda não está configurado neste servidor. Defina SMTP_HOST, SMTP_PORT e SMTP_FROM no arquivo .env do deploy e reinicie o serviço.' })
     const now = Date.now()
     const recent = (attempts.get(req.user.id) || []).filter(time => now - time < 3600000)
     if (recent.length >= 20) return res.status(429).json({ error: 'Limite de convites atingido. Tente novamente em uma hora.' })

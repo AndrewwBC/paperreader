@@ -28,6 +28,7 @@ const roleLabel = role => role === 'editor' ? 'Pode editar' : role === 'owner' ?
 
 export function SharingPanel({ study, onClose }) {
   const [data, setData] = useState(null)
+  const [possibleUsers, setPossibleUsers] = useState([])
   const [email, setEmail] = useState('')
   const [role, setRole] = useState('viewer')
   const [busy, setBusy] = useState(false)
@@ -37,7 +38,7 @@ export function SharingPanel({ study, onClose }) {
   const base = `/api/studies/${encodeURIComponent(study.id)}`
   useEffect(() => {
     let cancelled = false
-    sharingRequest(`${base}/sharing`).then(result => { if (!cancelled) setData(result) }).catch(error => { if (!cancelled) setError(error.message) })
+    Promise.all([sharingRequest(`${base}/sharing`), sharingRequest(`${base}/shareable-users`)]).then(([result, users]) => { if (!cancelled) { setData(result); setPossibleUsers(users.users) } }).catch(error => { if (!cancelled) setError(error.message) })
     return () => { cancelled = true }
   }, [base])
   async function invite(event) {
@@ -63,9 +64,9 @@ export function SharingPanel({ study, onClose }) {
     <p className={styles.studyName}>{study.name}</p>
     <p>Convide uma pessoa para acessar os PDFs e as anotações deste estudo.</p>
     <form className={styles.form} onSubmit={invite}>
-      <label>E-mail da pessoa<input type="email" required autoComplete="email" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} disabled={busy} /></label>
+      <label>E-mail da pessoa<input list="shareable-users" type="email" required autoComplete="email" maxLength={254} value={email} onChange={event => setEmail(event.target.value)} disabled={busy} /><datalist id="shareable-users">{possibleUsers.map(user => <option key={user.id} value={user.email}>{user.name}</option>)}</datalist></label><p className={styles.hint}>{possibleUsers.length ? `${possibleUsers.length} usuário(s) cadastrado(s) disponível(is) para convite.` : "Nenhum outro usuário disponível no momento."}</p>
       <label>Permissão<select value={role} onChange={event => setRole(event.target.value)} disabled={busy}><option value="viewer">Somente leitura</option><option value="editor">Pode editar</option></select></label>
-      <p className={styles.hint}>{role === 'editor' ? 'Pode adicionar e excluir PDFs e alterar as anotações. Só você gerencia participantes e exclui o estudo.' : 'Pode ler e baixar PDFs e consultar anotações, sem alterar o estudo.'}</p>
+      <p className={styles.possibleUsers}>{possibleUsers.length ? <>Usuários disponíveis: {possibleUsers.map(user => <button type="button" key={user.id} onClick={() => setEmail(user.email)} disabled={busy}>{user.name || user.email}</button>)}</> : null}</p><p className={styles.hint}>{role === 'editor' ? 'Pode adicionar e excluir PDFs e alterar as anotações. Só você gerencia participantes e exclui o estudo.' : 'Pode ler e baixar PDFs e consultar anotações, sem alterar o estudo.'}</p>
       <button className={styles.primary} disabled={busy || !email.trim()}>{busy ? 'Aguarde…' : 'Enviar convite'}</button>
     </form>
     {error && <p role="alert" className={styles.error}>{error}</p>}
