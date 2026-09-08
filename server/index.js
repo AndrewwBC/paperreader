@@ -497,6 +497,37 @@ app.put('/api/papers/:id', (req, res) => {
   })
 })
 
+// Discussions attached to a shared annotation.
+app.get('/api/papers/:id/discussions', (req, res) => {
+  const annotationId = String(req.query.annotationId || '').trim()
+  const paper = db.prepare(`SELECT p.id FROM papers p JOIN studies s ON s.id = p.study_id WHERE p.id = ? AND ${accessSql}`).get(req.params.id, req.user.id, req.user.id)
+  if (!paper) return res.status(404).json({ error: 'Paper not found' })
+  if (!annotationId) return res.status(400).json({ error: 'Annotation is required' })
+  const rows = db.prepare(`SELECT d.id, d.annotation_id, d.body, d.created_at, d.updated_at, u.id AS user_id, u.name, u.email
+    FROM annotation_discussions d JOIN users u ON u.id = d.user_id WHERE d.paper_id = ? AND d.annotation_id = ? ORDER BY d.created_at`).all(req.params.id, annotationId)
+  res.json(rows.map(row => ({ id: row.id, annotationId: row.annotation_id, body: row.body, createdAt: row.created_at, updatedAt: row.updated_at, user: { id: row.user_id, name: row.name, email: row.email }, canDelete: row.user_id === req.user.id })))
+})
+
+app.post('/api/papers/:id/discussions', (req, res) => {
+  const annotationId = String(req.body?.annotationId || '').trim()
+  const body = String(req.body?.body || '').trim()
+  const paper = db.prepare(`SELECT p.meta FROM papers p JOIN studies s ON s.id = p.study_id WHERE p.id = ? AND ${accessSql}`).get(req.params.id, req.user.id, req.user.id)
+  if (!paper) return res.status(404).json({ error: 'Paper not found' })
+  if (!annotationId || body.length < 1 || body.length > 5000) return res.status(400).json({ error: 'Escreva uma mensagem de 1 a 5.000 caracteres.' })
+  let meta
+  try { meta = JSON.parse(paper.meta) } catch { meta = {} }
+  if (!Array.isArray(meta.highlights) || !meta.highlights.some(item => String(item.id) === annotationId)) return res.status(404).json({ error: 'Anotação não encontrada.' })
+  const now = new Date().toISOString(), id = randomUUID()
+  db.prepare('INSERT INTO annotation_discussions (id, paper_id, annotation_id, user_id, body, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, req.params.id, annotationId, req.user.id, body, now, now)
+  res.status(201).json({ id, annotationId, body, createdAt: now, updatedAt: now, user: { id: req.user.id, name: req.user.name, email: req.user.email }, canDelete: true })
+})
+
+app.delete('/api/papers/:id/discussions/:discussionId', (req, res) => {
+  const result = db.prepare('DELETE FROM annotation_discussions WHERE id = ? AND paper_id = ? AND user_id = ?').run(req.params.discussionId, req.params.id, req.user.id)
+  if (!result.changes) return res.status(404).json({ error: 'Discussão não encontrada.' })
+  res.json({ ok: true })
+})
+
 // Update metadata
 app.put('/api/papers/:id/meta', (req, res) => {
   const row = db.prepare(`

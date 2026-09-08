@@ -1,5 +1,5 @@
 import { navigationHref, followLink } from '../hooks/useNavigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import styles from './MetadataPanel.module.css'
 
 const TASKS = ['', 'ABSA', 'SSA', 'DA']
@@ -127,6 +127,28 @@ export function MetadataPanel({ paper, onUpdate, onSelectHighlight, activeTab = 
   const linkedHighlightIndex = highlights.findIndex(item => String(item.id) === selectedAnnotationId)
   const activeHighlightIndex = linkedHighlightIndex >= 0 ? linkedHighlightIndex : Math.min(highlightIndex, Math.max(0, highlights.length - 1))
   const activeHighlight = highlights[activeHighlightIndex]
+
+  const activeHighlightId = activeHighlight?.id
+  const [discussions, setDiscussions] = useState([])
+  const [discussionBody, setDiscussionBody] = useState('')
+  const [discussionBusy, setDiscussionBusy] = useState(false)
+  const [discussionError, setDiscussionError] = useState('')
+  useEffect(() => {
+    if (!activeHighlightId) { setDiscussions([]); return }
+    let cancelled = false
+    fetch(`/api/papers/${encodeURIComponent(paper.id)}/discussions?annotationId=${encodeURIComponent(activeHighlightId)}`, { credentials: 'include' })
+      .then(async response => { const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Não foi possível carregar a discussão.'); return data })
+      .then(data => { if (!cancelled) { setDiscussions(data); setDiscussionError('') } })
+      .catch(error => { if (!cancelled) setDiscussionError(error.message) })
+    return () => { cancelled = true }
+  }, [paper.id, activeHighlightId])
+  async function addDiscussion(event) {
+    event.preventDefault(); const body = discussionBody.trim(); if (!body) return
+    setDiscussionBusy(true); setDiscussionError('')
+    try { const response = await fetch(`/api/papers/${encodeURIComponent(paper.id)}/discussions`, { method: 'POST', credentials: 'include', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ annotationId: activeHighlight.id, body }) }); const data = await response.json(); if (!response.ok) throw new Error(data.error || 'Não foi possível publicar.'); setDiscussions(items => [...items, data]); setDiscussionBody('') }
+    catch (error) { setDiscussionError(error.message) } finally { setDiscussionBusy(false) }
+  }
+  async function removeDiscussion(id) { await fetch(`/api/papers/${encodeURIComponent(paper.id)}/discussions/${encodeURIComponent(id)}`, { method: 'DELETE', credentials: 'include' }); setDiscussions(items => items.filter(item => item.id !== id)) }
 
 
   function openJson() {
@@ -387,6 +409,12 @@ export function MetadataPanel({ paper, onUpdate, onSelectHighlight, activeTab = 
                   placeholder="Escreva sua análise deste trecho..."
                 />
               </label>
+              <section className={styles.discussion} aria-label="Discussão da anotação">
+                <header><h3>Discussão</h3><span>{discussions.length} {discussions.length === 1 ? 'mensagem' : 'mensagens'}</span></header>
+                {discussionError && <p className={styles.discussionError} role="alert">{discussionError}</p>}
+                {discussions.map(item => <article key={item.id} className={styles.discussionMessage}><div><strong>{item.user.name || item.user.email}</strong><time>{new Date(item.createdAt).toLocaleString('pt-BR')}</time></div><p>{item.body}</p>{item.canDelete && <button type="button" onClick={() => removeDiscussion(item.id)}>Excluir</button>}</article>)}
+                <form onSubmit={addDiscussion}><textarea value={discussionBody} onChange={event => setDiscussionBody(event.target.value)} maxLength={5000} placeholder="Inicie uma discussão sobre este trecho…" disabled={discussionBusy} /><button type="submit" disabled={discussionBusy || !discussionBody.trim()}>{discussionBusy ? 'Publicando…' : 'Comentar'}</button></form>
+              </section>
             </article>
           ) : (
             <div className={styles.highlightsEmpty}>Nenhum trecho marcado</div>

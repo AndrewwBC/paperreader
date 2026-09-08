@@ -83,6 +83,19 @@ db.exec(`
 `)
 
 db.exec(`
+  CREATE TABLE IF NOT EXISTS annotation_discussions (
+    id TEXT PRIMARY KEY,
+    paper_id TEXT NOT NULL REFERENCES papers(id) ON DELETE CASCADE,
+    annotation_id TEXT NOT NULL,
+    user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    body TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS annotation_discussions_idx ON annotation_discussions(paper_id, annotation_id, created_at);
+`)
+
+db.exec(`
   CREATE TABLE IF NOT EXISTS papers (
     id TEXT PRIMARY KEY,
     study_id TEXT,

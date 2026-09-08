@@ -836,3 +836,17 @@
   font-size: 12px;
   text-align: center;
 }
+.discussion { margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--border); }
+.discussion > header { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.discussion h3 { margin:0; font-size:14px; }
+.discussion > header span { color:var(--text-muted); font-size:11px; }
+.discussionMessage { position:relative; margin-top:10px; padding:10px; border:1px solid var(--border); border-radius:8px; background:var(--surface); }
+.discussionMessage div { display:flex; justify-content:space-between; gap:8px; font-size:12px; }
+.discussionMessage time { color:var(--text-muted); font-size:10px; }
+.discussionMessage p { margin:6px 0 0; white-space:pre-wrap; font-size:13px; }
+.discussionMessage button { margin-top:6px; border:0; padding:0; background:none; color:var(--red); font-size:11px; cursor:pointer; }
+.discussion form { display:flex; flex-direction:column; gap:8px; margin-top:12px; }
+.discussion form textarea { min-height:64px; resize:vertical; }
+.discussion form button { align-self:flex-end; border:1px solid var(--accent); border-radius:6px; padding:7px 12px; background:var(--accent); color:var(--on-accent); font-weight:600; }
+.discussion form button:disabled { opacity:.5; }
+.discussionError { color:var(--red); font-size:12px; }
